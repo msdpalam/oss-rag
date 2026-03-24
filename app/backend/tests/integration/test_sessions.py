@@ -12,6 +12,10 @@ Requires: PostgreSQL running (see conftest.py).
 """
 import pytest
 
+# All tests share the session-scoped event loop so asyncpg connections
+# created during lifespan startup stay valid throughout the suite.
+pytestmark = pytest.mark.asyncio(loop_scope="session")
+
 
 @pytest.mark.integration
 async def test_list_sessions_returns_list(client):

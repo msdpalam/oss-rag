@@ -10,8 +10,10 @@ Strategy
 - MinIO is not required for these tests (health + session endpoints don't use it)
 - asgi_lifespan.LifespanManager explicitly triggers FastAPI startup/shutdown so
   that init_db() and ensure_collection() run before any test makes a request
-- A session-scoped event loop is used so that global asyncpg / qdrant-client
-  connection pools (module-level singletons) are not invalidated between tests
+- Tests are marked with loop_scope="session" (in test files via pytestmark) so
+  they share the same event loop as the session-scoped client fixture; this
+  prevents asyncpg / qdrant-client connections from being "attached to a
+  different loop"
 
 Environment variables
 ─────────────────────
@@ -21,7 +23,6 @@ Set these in CI (or your shell) before running:
   ANTHROPIC_API_KEY — set to any non-empty string (patched, never called)
 """
 
-import asyncio
 import os
 from unittest.mock import AsyncMock, patch
 
@@ -39,17 +40,6 @@ os.environ.setdefault("QDRANT_URL", "http://localhost:6333")
 os.environ.setdefault("S3_ENDPOINT_URL", "http://localhost:9000")
 os.environ.setdefault("S3_ACCESS_KEY", "ragapp")
 os.environ.setdefault("S3_SECRET_KEY", "ragapp123")
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """
-    Session-scoped event loop so global async singletons (asyncpg pool,
-    qdrant-client) remain valid across all integration tests.
-    """
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture(scope="session")
@@ -72,6 +62,7 @@ async def client(patch_ml_startup):
     Async HTTP client pointed at the full FastAPI app.
     LifespanManager explicitly sends ASGI lifespan startup/shutdown events
     so that init_db() and ensure_collection() run before any request.
+    Session-scoped so all tests share one asyncpg pool and qdrant client.
     """
     from main import app
 

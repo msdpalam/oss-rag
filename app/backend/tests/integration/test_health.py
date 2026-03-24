@@ -8,6 +8,10 @@ Requires: PostgreSQL and Qdrant running (see conftest.py).
 """
 import pytest
 
+# All tests share the session-scoped event loop so asyncpg/qdrant connections
+# created during lifespan startup stay valid throughout the suite.
+pytestmark = pytest.mark.asyncio(loop_scope="session")
+
 
 @pytest.mark.integration
 async def test_liveness_returns_ok(client):
