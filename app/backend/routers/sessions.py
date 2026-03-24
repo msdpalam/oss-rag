@@ -115,6 +115,10 @@ async def get_messages(session_id: str, db: AsyncSession = Depends(get_db)):
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid session ID")
 
+    sess = (await db.execute(select(Session).where(Session.id == sid))).scalar_one_or_none()
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+
     result = await db.execute(
         select(Message).where(Message.session_id == sid).order_by(Message.created_at.asc())
     )
