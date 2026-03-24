@@ -1,0 +1,46 @@
+# Environment — never commit secrets
+.env
+!.env.example
+
+# WSL / Windows metadata
+*:Zone.Identifier
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Node / Frontend
+node_modules/
+dist/
+.next/
+*.local
+
+# Docker
+*.log
+
+# Data directories (large files, not source)
+data/
+app/backend/data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo

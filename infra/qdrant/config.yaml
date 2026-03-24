@@ -1,0 +1,21 @@
+service:
+  max_request_size_mb: 32
+  grpc_port: 6334
+
+storage:
+  storage_path: /qdrant/storage
+  on_disk_payload: false
+
+optimizers:
+  indexing_threshold_kb: 20000
+  memmap_threshold_kb: 200000
+
+hnsw_index:
+  m: 16
+  ef_construct: 100
+  full_scan_threshold: 10000
+  on_disk: false
+
+wal:
+  wal_capacity_mb: 32
+  wal_segments_ahead: 0

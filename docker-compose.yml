@@ -1,0 +1,268 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# OSS RAG Stack  ·  Cloud-agnostic · Drop-in Azure Search + OpenAI replacement
+# Services: Qdrant · PostgreSQL · MinIO · Backend (FastAPI) · Frontend (React)
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-restart: &default-restart
+  restart: unless-stopped
+
+networks:
+  rag-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  qdrant_data:
+    driver: local
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+  backend_model_cache:
+    driver: local
+
+services:
+
+  # ── Vector Store ──────────────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.13.6
+    <<: *default-restart
+    container_name: oss-rag-qdrant
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"     # REST API
+      - "${QDRANT_GRPC_PORT:-6334}:6334" # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ./infra/qdrant/config.yaml:/qdrant/config/production.yaml:ro
+    environment:
+      QDRANT__LOG_LEVEL: ${QDRANT_LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':>/dev/tcp/localhost/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      rag-net:
+        ipv4_address: 172.20.0.10
+    logging: *default-logging
+
+  # ── Relational DB (chat history, users, sessions) ─────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    <<: *default-restart
+    container_name: oss-rag-postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./infra/postgres/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
+      POSTGRES_USER: ${POSTGRES_USER:-raguser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragpassword}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-raguser} -d ${POSTGRES_DB:-ragdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      rag-net:
+        ipv4_address: 172.20.0.11
+    logging: *default-logging
+
+  # ── Object Storage (raw docs, processed chunks, uploaded files) ───────────
+  minio:
+    image: minio/minio:RELEASE.2024-05-01T01-11-10Z
+    <<: *default-restart
+    container_name: oss-rag-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"     # S3-compatible API
+      - "${MINIO_CONSOLE_PORT:-9001}:9001" # Web console
+    volumes:
+      - minio_data:/data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_DEFAULT_BUCKETS: ${MINIO_BUCKET:-documents}
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || curl -sf http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      rag-net:
+        ipv4_address: 172.20.0.12
+    logging: *default-logging
+
+  # ── MinIO bucket + CORS bootstrap (runs once, then exits) ─────────────────
+  minio-init:
+    image: minio/mc:latest
+    container_name: oss-rag-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin123};
+        mc mb --ignore-existing local/${MINIO_BUCKET:-documents};
+        mc mb --ignore-existing local/${MINIO_BUCKET:-documents}-processed;
+        mc anonymous set download local/${MINIO_BUCKET:-documents};
+        mc admin user add local ${MINIO_APP_USER:-ragapp} ${MINIO_APP_PASSWORD:-ragapp123} || true;
+        mc admin policy attach local readwrite --user ${MINIO_APP_USER:-ragapp} || true;
+        echo 'MinIO bootstrap complete';
+      "
+    networks:
+      - rag-net
+
+  # ── FastAPI Backend ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./app/backend
+      dockerfile: Dockerfile
+      args:
+        BUILDKIT_INLINE_CACHE: "1"
+    <<: *default-restart
+    container_name: oss-rag-backend
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./app/backend:/app:delegated          # hot-reload in dev
+      - ./data:/app/data:ro                   # sample documents
+      - backend_model_cache:/root/.cache      # sentence-transformers cache
+    environment:
+      # ── App ──
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+
+      # ── Claude ──
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
+      CLAUDE_MAX_TOKENS: ${CLAUDE_MAX_TOKENS:-2048}
+      CLAUDE_TEMPERATURE: ${CLAUDE_TEMPERATURE:-0.0}
+
+      # ── Embeddings ──
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      EMBEDDING_DEVICE: ${EMBEDDING_DEVICE:-cpu}   # set to 'cuda' if GPU available
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-384}
+
+      # ── Qdrant ──
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-documents}
+
+      # ── PostgreSQL ──
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-raguser}:${POSTGRES_PASSWORD:-ragpassword}@postgres:5432/${POSTGRES_DB:-ragdb}
+
+      # ── MinIO / S3 ──
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY: ${MINIO_APP_USER:-ragapp}
+      S3_SECRET_KEY: ${MINIO_APP_PASSWORD:-ragapp123}
+      S3_BUCKET_DOCUMENTS: ${MINIO_BUCKET:-documents}
+      S3_BUCKET_PROCESSED: ${MINIO_BUCKET:-documents}-processed
+      S3_REGION: ${S3_REGION:-us-east-1}
+
+      # ── RAG tuning ──
+      RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-5}
+      RETRIEVAL_SCORE_THRESHOLD: ${RETRIEVAL_SCORE_THRESHOLD:-0.3}
+      CHUNK_SIZE: ${CHUNK_SIZE:-512}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-64}
+      USE_HYBRID_SEARCH: ${USE_HYBRID_SEARCH:-true}
+      CHAT_MODE: ${CHAT_MODE:-expert_context}
+      AGENT_DOMAIN: ${AGENT_DOMAIN:-stock_analysis}
+      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-8}
+
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      rag-net:
+        ipv4_address: 172.20.0.20
+    logging: *default-logging
+
+  # ── React Frontend ────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./app/frontend
+      dockerfile: Dockerfile
+      target: ${FRONTEND_BUILD_TARGET:-development}
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    <<: *default-restart
+    container_name: oss-rag-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./app/frontend/src:/app/src:delegated  # hot-reload in dev
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      VITE_APP_TITLE: ${VITE_APP_TITLE:-OSS RAG Chat}
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      rag-net:
+        ipv4_address: 172.20.0.21
+    logging: *default-logging
+
+  # ── Nginx reverse proxy (optional, ties everything together) ───────────────
+  nginx:
+    image: nginx:1.27-alpine
+    <<: *default-restart
+    container_name: oss-rag-nginx
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      - backend
+      - frontend
+    profiles:
+      - production   # only starts with: docker compose --profile production up
+    networks:
+      rag-net:
+        ipv4_address: 172.20.0.30
+    logging: *default-logging
+
+  # ── Adminer (DB explorer, dev only) ───────────────────────────────────────
+  adminer:
+    image: adminer:4.8.1
+    <<: *default-restart
+    container_name: oss-rag-adminer
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+    profiles:
+      - dev-tools
+    networks:
+      - rag-net
+    logging: *default-logging
