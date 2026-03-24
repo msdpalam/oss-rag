@@ -87,9 +87,11 @@ def test_small_table_kept_whole():
 
 
 def test_small_table_content_type_preserved():
-    table = "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |"
+    # Use same table as test_small_table_kept_whole — known to meet MIN_CHUNK_CHARS
+    table = "| Metric | Value |\n|--------|-------|\n| P/E    | 28.5  |\n| P/B    | 6.2   |"
     chunk = make_chunk(table, content_type="table")
     result = _split_into_chunks([chunk])
+    assert len(result) >= 1
     assert result[0].content_type == "table"
 
 

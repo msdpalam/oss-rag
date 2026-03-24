@@ -1,6 +1,7 @@
 # ── pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 asyncio_mode  = "auto"           # all async tests run automatically
+asyncio_default_fixture_loop_scope = "session"   # suppress deprecation warning
 pythonpath    = ["."]            # makes `from core.x import ...` work in tests
 testpaths     = ["tests"]
 markers = [
