@@ -7,6 +7,7 @@ Useful for:
   - Detecting trend drift across sessions
   - Avoiding redundant work when the same ticker was recently analysed
 """
+
 import json
 
 from agents.episodic_memory import episodic_memory
@@ -54,16 +55,21 @@ class RecallAnalysesTool(BaseTool):
 
         results = []
         for ep in episodes:
-            results.append({
-                "date": ep.get("date_str", "unknown"),
-                "tickers": ep.get("tickers", []),
-                "question": ep.get("question", ""),
-                "summary": ep.get("answer_summary", ""),
-                "tools_used": ep.get("tools_used", []),
-                "relevance_score": ep.get("relevance_score", 0),
-            })
+            results.append(
+                {
+                    "date": ep.get("date_str", "unknown"),
+                    "tickers": ep.get("tickers", []),
+                    "question": ep.get("question", ""),
+                    "summary": ep.get("answer_summary", ""),
+                    "tools_used": ep.get("tools_used", []),
+                    "relevance_score": ep.get("relevance_score", 0),
+                }
+            )
 
-        return json.dumps({
-            "memory_hits": len(results),
-            "past_analyses": results,
-        }, indent=2)
+        return json.dumps(
+            {
+                "memory_hits": len(results),
+                "past_analyses": results,
+            },
+            indent=2,
+        )

@@ -7,6 +7,7 @@ GET    /documents/{id}       — get document status (for polling)
 DELETE /documents/{id}       — delete document + chunks from Qdrant + S3
 POST   /documents/{id}/reindex — re-run ingestion pipeline
 """
+
 import uuid
 from typing import List, Optional
 
@@ -41,6 +42,7 @@ ALLOWED_CONTENT_TYPES = {
 
 
 # ── Response schema ───────────────────────────────────────────────────────────
+
 
 class DocumentResponse(BaseModel):
     id: str
@@ -80,11 +82,10 @@ class DocumentResponse(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+
 @router.get("", response_model=List[DocumentResponse])
 async def list_documents(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(Document).order_by(Document.created_at.desc())
-    )
+    result = await db.execute(select(Document).order_by(Document.created_at.desc()))
     return [DocumentResponse.from_orm(d) for d in result.scalars()]
 
 
@@ -141,6 +142,7 @@ async def upload_document(
 
     # Kick off background ingestion
     from utils.ingestion import ingest_document
+
     background_tasks.add_task(
         ingest_document,
         doc_id=str(doc_id),
@@ -181,6 +183,7 @@ async def delete_document(doc_id: str, db: AsyncSession = Depends(get_db)):
 
     # Remove vectors from Qdrant
     from core.vector_store import vector_store
+
     await vector_store.delete_by_document_id(doc_id)
 
     # Remove file from MinIO
@@ -213,6 +216,7 @@ async def reindex_document(
 
     # Delete existing vectors
     from core.vector_store import vector_store
+
     await vector_store.delete_by_document_id(doc_id)
 
     # Reset status
@@ -225,6 +229,7 @@ async def reindex_document(
     content = await storage.download(bucket=doc.s3_bucket, key=doc.s3_key)
 
     from utils.ingestion import ingest_document
+
     background_tasks.add_task(
         ingest_document,
         doc_id=doc_id,

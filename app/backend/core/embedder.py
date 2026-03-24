@@ -2,6 +2,7 @@
 Sentence-transformers async wrapper.
 Runs the CPU-bound encode() call in a thread pool to avoid blocking the event loop.
 """
+
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from typing import List
@@ -14,7 +15,6 @@ log = structlog.get_logger()
 
 
 class EmbedderService:
-
     def __init__(self) -> None:
         self._model = None
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="embedder")
@@ -32,9 +32,7 @@ class EmbedderService:
         loop = asyncio.get_event_loop()
         self._model = await loop.run_in_executor(
             self._executor,
-            lambda: SentenceTransformer(
-                settings.EMBEDDING_MODEL, device=settings.EMBEDDING_DEVICE
-            ),
+            lambda: SentenceTransformer(settings.EMBEDDING_MODEL, device=settings.EMBEDDING_DEVICE),
         )
         log.info(
             "embedder.loaded",

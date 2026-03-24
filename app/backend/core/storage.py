@@ -2,9 +2,9 @@
 MinIO / S3-compatible object storage async wrapper.
 Uses boto3 in a thread pool to avoid blocking the event loop.
 """
+
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
 import structlog
 
@@ -14,7 +14,6 @@ log = structlog.get_logger()
 
 
 class StorageService:
-
     def __init__(self) -> None:
         self._client = None
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="storage")
@@ -67,9 +66,7 @@ class StorageService:
         )
         log.debug("storage.deleted", bucket=bucket, key=key)
 
-    async def get_presigned_url(
-        self, bucket: str, key: str, expiry: int = 3600
-    ) -> str:
+    async def get_presigned_url(self, bucket: str, key: str, expiry: int = 3600) -> str:
         loop = asyncio.get_event_loop()
         url = await loop.run_in_executor(
             self._executor,

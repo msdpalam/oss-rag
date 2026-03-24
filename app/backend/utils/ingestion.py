@@ -10,10 +10,11 @@ Supports:
 Called as a FastAPI BackgroundTask after upload.
 Also importable as a standalone script (scripts/prepdocs.py).
 """
+
 import asyncio
 import base64
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -58,6 +59,7 @@ class ParsedChunk:
 
 # ── Parsers ───────────────────────────────────────────────────────────────────
 
+
 def _parse_pdf(content: bytes, original_name: str) -> tuple[List[ParsedChunk], int, bool]:
     doc = pymupdf.open(stream=content, filetype="pdf")
     page_count = len(doc)
@@ -70,21 +72,25 @@ def _parse_pdf(content: bytes, original_name: str) -> tuple[List[ParsedChunk], i
         for page_idx, page_text in enumerate(pages):
             stripped = page_text.strip()
             if stripped:
-                raw_chunks.append(ParsedChunk(
-                    content=stripped,
-                    page_number=page_idx + 1,
-                    content_type="text",
-                ))
+                raw_chunks.append(
+                    ParsedChunk(
+                        content=stripped,
+                        page_number=page_idx + 1,
+                        content_type="text",
+                    )
+                )
     except Exception as e:
         log.warning("pdf.markdown_extraction_failed", error=str(e))
         for page in doc:
             text = page.get_text().strip()
             if text:
-                raw_chunks.append(ParsedChunk(
-                    content=text,
-                    page_number=page.number + 1,
-                    content_type="text",
-                ))
+                raw_chunks.append(
+                    ParsedChunk(
+                        content=text,
+                        page_number=page.number + 1,
+                        content_type="text",
+                    )
+                )
 
     for page in doc:
         for img_info in page.get_images(full=True):
@@ -95,12 +101,14 @@ def _parse_pdf(content: bytes, original_name: str) -> tuple[List[ParsedChunk], i
                 if len(img_bytes) < 5_000:
                     continue
                 has_images = True
-                raw_chunks.append(ParsedChunk(
-                    content="",
-                    page_number=page.number + 1,
-                    content_type="image_caption",
-                    image_data=img_bytes,
-                ))
+                raw_chunks.append(
+                    ParsedChunk(
+                        content="",
+                        page_number=page.number + 1,
+                        content_type="image_caption",
+                        image_data=img_bytes,
+                    )
+                )
             except Exception:
                 pass
 
@@ -115,8 +123,9 @@ def _parse_text(content: bytes, content_type: str) -> List[ParsedChunk]:
 
 def _parse_office(content: bytes, content_type: str, original_name: str) -> List[ParsedChunk]:
     try:
-        from unstructured.partition.auto import partition
         import io
+
+        from unstructured.partition.auto import partition
 
         elements = partition(
             file=io.BytesIO(content),
@@ -127,7 +136,9 @@ def _parse_office(content: bytes, content_type: str, original_name: str) -> List
         for el in elements:
             text = str(el).strip()
             if text:
-                page = getattr(el.metadata, "page_number", None) if hasattr(el, "metadata") else None
+                page = (
+                    getattr(el.metadata, "page_number", None) if hasattr(el, "metadata") else None
+                )
                 ctype = "table" if el.category == "Table" else "text"
                 chunks.append(ParsedChunk(content=text, page_number=page, content_type=ctype))
         return chunks
@@ -137,10 +148,13 @@ def _parse_office(content: bytes, content_type: str, original_name: str) -> List
 
 
 def _parse_image_file(content: bytes) -> List[ParsedChunk]:
-    return [ParsedChunk(content="", page_number=1, content_type="image_caption", image_data=content)]
+    return [
+        ParsedChunk(content="", page_number=1, content_type="image_caption", image_data=content)
+    ]
 
 
 # ── Image captioning ──────────────────────────────────────────────────────────
+
 
 async def _caption_images(chunks: List[ParsedChunk]) -> List[ParsedChunk]:
     image_chunks = [c for c in chunks if c.content_type == "image_caption" and c.image_data]
@@ -163,13 +177,22 @@ async def _caption_images(chunks: List[ParsedChunk]) -> List[ParsedChunk]:
                 response = await client.messages.create(
                     model=settings.CLAUDE_MODEL,
                     max_tokens=300,
-                    messages=[{
-                        "role": "user",
-                        "content": [
-                            {"type": "image", "source": {"type": "base64", "media_type": img_type, "data": b64}},
-                            {"type": "text", "text": IMAGE_CAPTION_PROMPT},
-                        ],
-                    }],
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": img_type,
+                                        "data": b64,
+                                    },
+                                },
+                                {"type": "text", "text": IMAGE_CAPTION_PROMPT},
+                            ],
+                        }
+                    ],
                 )
                 chunk.content = f"[Image] {response.content[0].text.strip()}"
             except Exception as e:
@@ -181,6 +204,7 @@ async def _caption_images(chunks: List[ParsedChunk]) -> List[ParsedChunk]:
 
 
 # ── Chunking ──────────────────────────────────────────────────────────────────
+
 
 def _split_into_chunks(parsed: List[ParsedChunk]) -> List[ParsedChunk]:
     result: List[ParsedChunk] = []
@@ -199,18 +223,21 @@ def _split_into_chunks(parsed: List[ParsedChunk]) -> List[ParsedChunk]:
         for sub in sub_texts:
             cleaned = sub.strip()
             if len(cleaned) >= MIN_CHUNK_CHARS:
-                result.append(ParsedChunk(
-                    content=cleaned,
-                    page_number=chunk.page_number,
-                    chunk_index=idx,
-                    content_type=chunk.content_type,
-                ))
+                result.append(
+                    ParsedChunk(
+                        content=cleaned,
+                        page_number=chunk.page_number,
+                        chunk_index=idx,
+                        content_type=chunk.content_type,
+                    )
+                )
                 idx += 1
 
     return result
 
 
 # ── Main ingestion entry point ────────────────────────────────────────────────
+
 
 async def ingest_document(
     doc_id: str,
@@ -223,6 +250,7 @@ async def ingest_document(
 
     async with AsyncSessionLocal() as db:
         from sqlalchemy import select
+
         result = await db.execute(select(Document).where(Document.id == uuid.UUID(doc_id)))
         doc = result.scalar_one_or_none()
         if not doc:
@@ -260,13 +288,14 @@ async def ingest_document(
             BATCH = settings.EMBEDDING_BATCH_SIZE
             all_vectors = []
             for i in range(0, len(texts), BATCH):
-                batch_vecs = await embedder.embed(texts[i:i + BATCH])
+                batch_vecs = await embedder.embed(texts[i : i + BATCH])
                 all_vectors.extend(batch_vecs)
 
             # Compute BM25 sparse vectors for hybrid search (no extra dependencies)
             sparse_vectors = []
             if settings.USE_HYBRID_SEARCH:
                 from core.sparse_embedder import bm25_encode
+
                 for text in texts:
                     indices, values = bm25_encode(text)
                     sparse_vectors.append((indices, values))
@@ -275,7 +304,9 @@ async def ingest_document(
 
             points = []
             chunk_records = []
-            for chunk, vector, (sp_indices, sp_values) in zip(chunks, all_vectors, sparse_vectors):
+            for chunk, vector, (sp_indices, sp_values) in zip(
+                chunks, all_vectors, sparse_vectors, strict=False
+            ):
                 point_id = uuid.uuid4()
                 point: dict = {
                     "id": point_id,
@@ -295,19 +326,21 @@ async def ingest_document(
                     point["sparse_values"] = sp_values
                 points.append(point)
 
-                chunk_records.append(DocumentChunk(
-                    id=uuid.uuid4(),
-                    document_id=uuid.UUID(doc_id),
-                    qdrant_point_id=point_id,
-                    chunk_index=chunk.chunk_index,
-                    page_number=chunk.page_number,
-                    content=chunk.content,
-                    content_type=chunk.content_type,
-                    char_count=len(chunk.content),
-                ))
+                chunk_records.append(
+                    DocumentChunk(
+                        id=uuid.uuid4(),
+                        document_id=uuid.UUID(doc_id),
+                        qdrant_point_id=point_id,
+                        chunk_index=chunk.chunk_index,
+                        page_number=chunk.page_number,
+                        content=chunk.content,
+                        content_type=chunk.content_type,
+                        char_count=len(chunk.content),
+                    )
+                )
 
             for i in range(0, len(points), 100):
-                await vector_store.upsert(points[i:i + 100])
+                await vector_store.upsert(points[i : i + 100])
 
             db.add_all(chunk_records)
 

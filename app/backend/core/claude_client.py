@@ -2,7 +2,8 @@
 Claude API client — wraps the Anthropic SDK.
 Provides both streaming and non-streaming completions.
 """
-from typing import Any, AsyncIterator, List, Optional
+
+from typing import AsyncIterator, List, Optional
 
 import structlog
 from anthropic import AsyncAnthropic
@@ -63,7 +64,6 @@ Rules:
 
 
 class ClaudeClient:
-
     def __init__(self) -> None:
         self._client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
@@ -80,13 +80,13 @@ class ClaudeClient:
         Raw non-streaming create — supports tool_use.
         Used by the agent loop for tool-call rounds.
         """
-        kwargs = dict(
-            model=settings.CLAUDE_MODEL,
-            max_tokens=max_tokens or settings.CLAUDE_MAX_TOKENS,
-            temperature=settings.CLAUDE_TEMPERATURE,
-            system=system,
-            messages=messages,
-        )
+        kwargs = {
+            "model": settings.CLAUDE_MODEL,
+            "max_tokens": max_tokens or settings.CLAUDE_MAX_TOKENS,
+            "temperature": settings.CLAUDE_TEMPERATURE,
+            "system": system,
+            "messages": messages,
+        }
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = {"type": "auto"}
@@ -154,19 +154,20 @@ class ClaudeClient:
         context_parts = []
         for i, chunk in enumerate(retrieved_chunks, 1):
             page_info = f", page {chunk.page}" if chunk.page else ""
-            context_parts.append(
-                f"[Excerpt {i} — {chunk.source}{page_info}]\n{chunk.content}"
-            )
-        context_block = "\n\n---\n\n".join(context_parts) if context_parts else "No relevant documents found."
+            context_parts.append(f"[Excerpt {i} — {chunk.source}{page_info}]\n{chunk.content}")
+        context_block = (
+            "\n\n---\n\n".join(context_parts) if context_parts else "No relevant documents found."
+        )
 
         messages: List[MessageParam] = list(conversation_history or [])
-        messages.append({
-            "role": "user",
-            "content": (
-                f"Document excerpts:\n\n{context_block}\n\n"
-                f"---\n\nQuestion: {user_message}"
-            ),
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"Document excerpts:\n\n{context_block}\n\n---\n\nQuestion: {user_message}"
+                ),
+            }
+        )
 
         log.debug(
             "claude.streaming",
@@ -205,10 +206,12 @@ class ClaudeClient:
         context_block = "\n\n---\n\n".join(context_parts) or "No relevant documents found."
 
         messages: List[MessageParam] = list(conversation_history or [])
-        messages.append({
-            "role": "user",
-            "content": f"Document excerpts:\n\n{context_block}\n\n---\n\nQuestion: {user_message}",
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": f"Document excerpts:\n\n{context_block}\n\n---\n\nQuestion: {user_message}",
+            }
+        )
 
         system_prompt = SYSTEM_PROMPTS.get(mode or settings.CHAT_MODE, STRICT_RAG_PROMPT)
 

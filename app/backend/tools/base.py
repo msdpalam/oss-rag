@@ -4,13 +4,14 @@ BaseTool — abstract contract every tool must implement.
 Tools are the atomic capabilities available to the agent orchestrator.
 Each tool maps directly to a Claude tool_use schema.
 """
+
 from abc import ABC, abstractmethod
 from typing import Any, Dict
 
 
 class BaseTool(ABC):
-    name: str           # must match Claude tool name exactly
-    description: str    # shown to Claude — be specific about when to use it
+    name: str  # must match Claude tool name exactly
+    description: str  # shown to Claude — be specific about when to use it
     parameters: Dict[str, Any]  # JSON Schema for the tool inputs
 
     @abstractmethod

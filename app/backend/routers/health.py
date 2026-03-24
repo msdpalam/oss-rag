@@ -3,6 +3,7 @@ Health check endpoints.
 GET /health       — liveness (always 200 if process is running)
 GET /health/ready — readiness (checks DB + Qdrant)
 """
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession

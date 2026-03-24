@@ -1,6 +1,7 @@
 """
 SQLAlchemy async engine and session factory.
 """
+
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,

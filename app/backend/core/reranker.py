@@ -17,6 +17,7 @@ Score normalisation
 Raw CrossEncoder logits are normalised to [0, 1] via sigmoid so the
 downstream citations panel continues to show interpretable scores.
 """
+
 import asyncio
 import math
 from concurrent.futures import ThreadPoolExecutor
@@ -31,7 +32,6 @@ log = structlog.get_logger()
 
 
 class RerankerService:
-
     def __init__(self) -> None:
         self._model = None
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="reranker")
@@ -49,7 +49,7 @@ class RerankerService:
             log.info("reranker.loaded", model=settings.RERANKER_MODEL)
         except Exception as e:
             log.warning("reranker.load_failed", model=settings.RERANKER_MODEL, error=str(e))
-            self._model = None   # graceful degradation — rerank() will be a no-op
+            self._model = None  # graceful degradation — rerank() will be a no-op
 
     async def rerank(
         self,
@@ -73,7 +73,7 @@ class RerankerService:
         )
 
         # Sort by raw score, then normalise to [0,1] via sigmoid for display
-        ranked = sorted(zip(raw_scores, chunks), key=lambda x: x[0], reverse=True)
+        ranked = sorted(zip(raw_scores, chunks, strict=False), key=lambda x: x[0], reverse=True)
         result = []
         for raw, chunk in ranked[:top_n]:
             chunk.score = round(1.0 / (1.0 + math.exp(-raw)), 4)

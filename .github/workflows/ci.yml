@@ -60,8 +60,7 @@ jobs:
           QDRANT_URL: http://localhost:6333
         run: |
           pytest tests/unit/ -v --tb=short \
-            --cov=. --cov-omit="tests/*" \
-            --cov-report=term-missing \
+            --cov=. --cov-report=term-missing \
             -m "not integration"
 
   # ── 3. Integration tests ───────────────────────────────────────────────────

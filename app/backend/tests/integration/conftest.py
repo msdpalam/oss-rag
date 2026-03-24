@@ -16,6 +16,7 @@ Set these in CI (or your shell) before running:
   QDRANT_URL    — defaults to localhost:6333
   ANTHROPIC_API_KEY — set to any non-empty string (patched, never called)
 """
+
 import os
 from unittest.mock import AsyncMock, patch
 
@@ -48,11 +49,12 @@ def patch_ml_startup():
         yield
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 async def client(patch_ml_startup):
     """
     Async HTTP client pointed at the full FastAPI app.
-    The lifespan runs (DB tables created, Qdrant collections ensured).
+    Function-scoped so each test gets a clean lifespan (DB tables created,
+    Qdrant collections ensured) without event-loop sharing issues.
     """
     from main import app
 

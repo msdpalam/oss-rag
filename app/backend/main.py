@@ -1,6 +1,7 @@
 """
 OSS RAG Stack — FastAPI application entrypoint
 """
+
 from contextlib import asynccontextmanager
 
 import structlog
@@ -31,11 +32,13 @@ async def lifespan(app: FastAPI):
     log.info("startup.vector_store_ready", collection=settings.QDRANT_COLLECTION)
 
     from agents.episodic_memory import episodic_memory
+
     await episodic_memory.ensure_collection()
     log.info("startup.episodic_memory_ready")
 
     if settings.USE_RERANKING:
         from core.reranker import reranker
+
         await reranker.warm_up()
         log.info("startup.reranker_ready", model=settings.RERANKER_MODEL)
 
@@ -47,6 +50,7 @@ async def lifespan(app: FastAPI):
     await vector_store.close()
     if settings.USE_RERANKING:
         from core.reranker import reranker
+
         await reranker.close()
     log.info("shutdown.complete")
 
@@ -70,6 +74,6 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.include_router(health.router, tags=["health"])
-app.include_router(chat.router,      prefix="/chat",      tags=["chat"])
-app.include_router(sessions.router,  prefix="/sessions",  tags=["sessions"])
+app.include_router(chat.router, prefix="/chat", tags=["chat"])
+app.include_router(sessions.router, prefix="/sessions", tags=["sessions"])
 app.include_router(documents.router, prefix="/documents", tags=["documents"])

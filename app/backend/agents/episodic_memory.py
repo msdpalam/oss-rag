@@ -15,6 +15,7 @@ similarity to the current query, giving it temporal context:
 Storage: separate Qdrant collection ("episodes") — doesn't touch the documents collection.
 Embedding: same embedder as documents (all-MiniLM-L6-v2).
 """
+
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -23,7 +24,7 @@ import structlog
 
 from core.config import settings
 from core.embedder import embedder
-from core.vector_store import vector_store   # reuses the same AsyncQdrantClient
+from core.vector_store import vector_store  # reuses the same AsyncQdrantClient
 
 log = structlog.get_logger()
 
@@ -31,7 +32,6 @@ EPISODES_COLLECTION = "episodes"
 
 
 class EpisodicMemoryStore:
-
     async def ensure_collection(self) -> None:
         """Create the episodes Qdrant collection if it doesn't exist."""
         from qdrant_client.http import models as qmodels
@@ -147,10 +147,7 @@ class EpisodicMemoryStore:
                 score_threshold=0.35,
             )
 
-            return [
-                {**p.payload, "relevance_score": round(p.score, 3)}
-                for p in response.points
-            ]
+            return [{**p.payload, "relevance_score": round(p.score, 3)} for p in response.points]
 
         except Exception as e:
             log.warning("episodic_memory.search_failed", error=str(e))

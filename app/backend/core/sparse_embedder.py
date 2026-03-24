@@ -24,12 +24,13 @@ The resulting sparse vectors are self-contained — no shared IDF table needed.
 Both document and query vectors use the same function, which is the only
 requirement for Qdrant's sparse vector inner-product scoring.
 """
+
 import re
 from typing import List, Tuple
 
 # Prime-based hash bucket size — large enough to keep collision rate low
 # while fitting Qdrant's SparseVector index efficiently.
-VOCAB_SIZE = 131_072   # 2^17
+VOCAB_SIZE = 131_072  # 2^17
 
 # BM25 k1 parameter (term-frequency saturation)
 _K1 = 1.2
@@ -74,7 +75,7 @@ def bm25_encode(text: str) -> Tuple[List[int], List[float]]:
     values: List[float] = []
     for idx, freq in tf_raw.items():
         # BM25 TF saturation (no length norm — approximated by sqrt(doc_len))
-        tf_norm = freq / (doc_len ** 0.5)
+        tf_norm = freq / (doc_len**0.5)
         bm25_tf = (_K1 + 1.0) * tf_norm / (_K1 + tf_norm)
         indices.append(idx)
         values.append(round(bm25_tf, 6))

@@ -2,7 +2,7 @@
 Qdrant vector store wrapper.
 Supports dense vector search, sparse (BM25) search, and hybrid (RRF fusion).
 """
-import uuid
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -19,13 +19,14 @@ log = structlog.get_logger()
 @dataclass
 class RetrievedChunk:
     """A single retrieved chunk with its metadata and score."""
+
     id: str
     score: float
     content: str
-    source: str                   # original filename
+    source: str  # original filename
     page: Optional[int] = None
     chunk_index: Optional[int] = None
-    content_type: str = "text"   # text | table | image_caption
+    content_type: str = "text"  # text | table | image_caption
     document_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -74,7 +75,9 @@ class VectorStoreService:
                     self.SPARSE_VECTOR: qmodels.SparseVectorParams(
                         index=qmodels.SparseIndexParams(on_disk=False),
                     ),
-                } if settings.USE_HYBRID_SEARCH else None,
+                }
+                if settings.USE_HYBRID_SEARCH
+                else None,
                 optimizers_config=qmodels.OptimizersConfigDiff(
                     indexing_threshold=20_000,
                 ),
@@ -215,8 +218,17 @@ class VectorStoreService:
             content_type=p.get("content_type", "text"),
             document_id=p.get("document_id"),
             metadata={
-                k: v for k, v in p.items()
-                if k not in {"content", "source", "page_number", "chunk_index", "content_type", "document_id"}
+                k: v
+                for k, v in p.items()
+                if k
+                not in {
+                    "content",
+                    "source",
+                    "page_number",
+                    "chunk_index",
+                    "content_type",
+                    "document_id",
+                }
             },
         )
 

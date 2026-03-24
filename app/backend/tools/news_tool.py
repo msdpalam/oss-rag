@@ -5,6 +5,7 @@ Returns the latest news items for a ticker: title, publisher, date, and URL.
 No API key required. Used by the agent to add real-time market sentiment and
 event context (earnings, analyst upgrades, macro news) to its analysis.
 """
+
 import json
 from datetime import datetime, timezone
 
@@ -55,16 +56,20 @@ class StockNewsTool(BaseTool):
 
                 ts = article.get("providerPublishTime", 0)
                 if ts:
-                    date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+                    date_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime(
+                        "%Y-%m-%d %H:%M UTC"
+                    )
                 else:
                     date_str = "date unknown"
 
-                items.append({
-                    "date": date_str,
-                    "headline": title,
-                    "source": publisher,
-                    "url": link,
-                })
+                items.append(
+                    {
+                        "date": date_str,
+                        "headline": title,
+                        "source": publisher,
+                        "url": link,
+                    }
+                )
 
             result = {
                 "ticker": ticker.upper(),

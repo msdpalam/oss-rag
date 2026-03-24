@@ -5,6 +5,7 @@ GET  /sessions                    — list sessions for anonymous user
 DELETE /sessions/{id}             — delete session and all its messages
 GET  /sessions/{id}/messages      — get all messages in a session
 """
+
 import uuid
 from typing import List, Optional
 
@@ -24,6 +25,7 @@ ANON_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 # ── Response schemas ──────────────────────────────────────────────────────────
+
 
 class SessionResponse(BaseModel):
     id: str
@@ -63,16 +65,31 @@ class MessageResponse(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+
 @router.get("", response_model=List[SessionResponse])
 async def list_sessions(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Session)
         .where(Session.user_id == ANON_USER_ID)
-        .where(Session.is_archived == False)
+        .where(Session.is_archived == False)  # noqa: E712
         .order_by(Session.updated_at.desc())
         .limit(50)
     )
     return [SessionResponse.from_orm(s) for s in result.scalars()]
+
+
+@router.get("/{session_id}", response_model=SessionResponse)
+async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        sid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session ID")
+
+    result = await db.execute(select(Session).where(Session.id == sid))
+    sess = result.scalar_one_or_none()
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return SessionResponse.from_orm(sess)
 
 
 @router.delete("/{session_id}", status_code=204)
@@ -99,9 +116,7 @@ async def get_messages(session_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Invalid session ID")
 
     result = await db.execute(
-        select(Message)
-        .where(Message.session_id == sid)
-        .order_by(Message.created_at.asc())
+        select(Message).where(Message.session_id == sid).order_by(Message.created_at.asc())
     )
     return [
         MessageResponse(

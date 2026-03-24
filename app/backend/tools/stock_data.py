@@ -5,6 +5,7 @@ Two tools:
   StockPriceTool      — OHLCV history, 52-week range, volume
   FundamentalTool     — valuation, profitability, growth, analyst consensus
 """
+
 import json
 from typing import Any
 

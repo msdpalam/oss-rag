@@ -12,6 +12,7 @@ SSE event types emitted:
   {"type": "done",        "latency_ms": int, "steps": int, "chunks": [...]}
   {"type": "error",       "message": str}
 """
+
 import json
 import time
 import uuid
@@ -23,8 +24,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from agents.orchestrator import orchestrator
 from agents.episodic_memory import episodic_memory
+from agents.orchestrator import orchestrator
 from core.config import settings
 from core.database import get_db
 from core.models import Message, Session
@@ -36,6 +37,7 @@ ANON_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
+
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=8000)
@@ -55,8 +57,10 @@ class ChatResponse(BaseModel):
 
 # ── Session helpers ───────────────────────────────────────────────────────────
 
+
 async def _get_or_create_session(session_id: Optional[str], db: AsyncSession) -> Session:
     from sqlalchemy import select
+
     if session_id:
         result = await db.execute(select(Session).where(Session.id == uuid.UUID(session_id)))
         sess = result.scalar_one_or_none()
@@ -71,6 +75,7 @@ async def _get_or_create_session(session_id: Optional[str], db: AsyncSession) ->
 
 async def _load_history(session: Session, db: AsyncSession, limit: int = 10) -> List[dict]:
     from sqlalchemy import select
+
     result = await db.execute(
         select(Message)
         .where(Message.session_id == session.id)
@@ -91,26 +96,31 @@ async def _persist_exchange(
     steps: int,
     latency_ms: int,
 ) -> None:
-    db.add(Message(
-        id=uuid.uuid4(),
-        session_id=sess.id,
-        role="user",
-        content=user_message,
-    ))
-    db.add(Message(
-        id=message_id,
-        session_id=sess.id,
-        role="assistant",
-        content=answer,
-        retrieved_chunks=chunks,
-        latency_ms=latency_ms,
-    ))
+    db.add(
+        Message(
+            id=uuid.uuid4(),
+            session_id=sess.id,
+            role="user",
+            content=user_message,
+        )
+    )
+    db.add(
+        Message(
+            id=message_id,
+            session_id=sess.id,
+            role="assistant",
+            content=answer,
+            retrieved_chunks=chunks,
+            latency_ms=latency_ms,
+        )
+    )
     if not sess.title:
         sess.title = user_message[:80]
     await db.commit()
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @router.post("/stream")
 async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):

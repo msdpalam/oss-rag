@@ -12,14 +12,15 @@ Retrieval pipeline (all steps are individually feature-flagged):
   5. [USE_RERANKING] CrossEncoder second-pass over RERANK_CANDIDATES → top_k
   6. Format results with source/page metadata for citation
 """
-from typing import List, Optional
+
+from typing import List
 
 import structlog
 
 from core.config import settings
 from core.embedder import embedder
-from core.vector_store import vector_store, RetrievedChunk
 from core.sparse_embedder import bm25_encode
+from core.vector_store import RetrievedChunk, vector_store
 from tools.base import BaseTool
 
 log = structlog.get_logger()
@@ -83,6 +84,7 @@ class RAGTool(BaseTool):
         # ── Step 4: Re-rank candidates → top_k ───────────────────────────────
         if settings.USE_RERANKING and chunks:
             from core.reranker import reranker
+
             chunks = await reranker.rerank(query=query, chunks=chunks, top_n=top_k)
         else:
             chunks = chunks[:top_k]
@@ -95,9 +97,7 @@ class RAGTool(BaseTool):
         parts = []
         for c in chunks:
             page_info = f", page {c.page}" if c.page else ""
-            parts.append(
-                f"[Source: {c.source}{page_info} | score={c.score:.3f}]\n{c.content}"
-            )
+            parts.append(f"[Source: {c.source}{page_info} | score={c.score:.3f}]\n{c.content}")
         return "\n\n---\n\n".join(parts)
 
     async def _generate_hypothesis(self, query: str) -> str:
@@ -109,6 +109,7 @@ class RAGTool(BaseTool):
         """
         try:
             from core.claude_client import claude
+
             response = await claude.create(
                 messages=[{"role": "user", "content": _HYDE_PROMPT.format(query=query)}],
                 system="You are a financial document expert. Write realistic document passages.",

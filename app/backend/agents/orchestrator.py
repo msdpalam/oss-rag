@@ -17,17 +17,16 @@ SSE events yielded during stream()
   {"type": "done",        "latency_ms": int, "steps": int, "chunks": [...]}
   {"type": "error",       "message": str}
 """
+
 import time
-import uuid
 from typing import AsyncIterator, Dict, List, Optional
 
 import structlog
-from anthropic.types import ToolUseBlock, TextBlock
+from anthropic.types import ToolUseBlock
 
 from agents.memory import WorkingMemory
 from core.config import settings
 from tools import BaseTool, RAGTool, default_tools
-from core.vector_store import RetrievedChunk
 
 log = structlog.get_logger()
 
@@ -55,7 +54,6 @@ When analysing a stock or investment question:
 
 Be specific with numbers. If data is unavailable or ambiguous, say so.\
 """,
-
     "general": """\
 You are a knowledgeable expert assistant with broad knowledge across many domains.
 You have tools to search uploaded documents and retrieve information.
@@ -79,6 +77,7 @@ When no documents are relevant, draw on your general expertise and say so.\
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 
+
 class AgentOrchestrator:
     """
     Drives the tool-use loop and streams the final answer.
@@ -87,7 +86,7 @@ class AgentOrchestrator:
 
     def __init__(self, tools: Optional[List[BaseTool]] = None) -> None:
         self._tools: Dict[str, BaseTool] = {}
-        for t in (tools or default_tools()):
+        for t in tools or default_tools():
             self._tools[t.name] = t
 
     @property
@@ -108,7 +107,7 @@ class AgentOrchestrator:
         Full agentic streaming run.
         Yields SSE-ready dicts. Caller serialises to JSON.
         """
-        from core.claude_client import claude   # avoid circular import at module level
+        from core.claude_client import claude  # avoid circular import at module level
 
         t0 = time.monotonic()
         memory = WorkingMemory(session_id=session_id)
@@ -140,19 +139,29 @@ class AgentOrchestrator:
 
                 tool_results = []
                 for block in tool_blocks:
-                    yield {"type": "tool_call", "tool": block.name,
-                           "input": dict(block.input), "step": step}
+                    yield {
+                        "type": "tool_call",
+                        "tool": block.name,
+                        "input": dict(block.input),
+                        "step": step,
+                    }
 
                     result = await self._run_tool(block.name, dict(block.input), memory)
 
-                    yield {"type": "tool_result", "tool": block.name,
-                           "result": result[:400], "step": step}
-
-                    tool_results.append({
+                    yield {
                         "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
-                    })
+                        "tool": block.name,
+                        "result": result[:400],
+                        "step": step,
+                    }
+
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result,
+                        }
+                    )
 
                 messages.append({"role": "user", "content": tool_results})
 
@@ -164,12 +173,19 @@ class AgentOrchestrator:
             latency_ms = int((time.monotonic() - t0) * 1000)
 
             # Extract tickers from tool calls for episodic storage
-            ticker_tools = {"get_stock_price", "technical_analysis", "get_fundamentals", "get_stock_news"}
-            tickers_analyzed = list({
-                tc.tool_input.get("ticker", "").upper()
-                for tc in memory.tool_calls
-                if tc.tool_name in ticker_tools and tc.tool_input.get("ticker")
-            })
+            ticker_tools = {
+                "get_stock_price",
+                "technical_analysis",
+                "get_fundamentals",
+                "get_stock_news",
+            }
+            tickers_analyzed = list(
+                {
+                    tc.tool_input.get("ticker", "").upper()
+                    for tc in memory.tool_calls
+                    if tc.tool_name in ticker_tools and tc.tool_input.get("ticker")
+                }
+            )
             tools_used = list({tc.tool_name for tc in memory.tool_calls})
 
             yield {
@@ -205,9 +221,7 @@ class AgentOrchestrator:
 
     # ── Tool execution ────────────────────────────────────────────────────────
 
-    async def _run_tool(
-        self, name: str, tool_input: dict, memory: WorkingMemory
-    ) -> str:
+    async def _run_tool(self, name: str, tool_input: dict, memory: WorkingMemory) -> str:
         tool = self._tools.get(name)
         if not tool:
             return f"Unknown tool: {name}"

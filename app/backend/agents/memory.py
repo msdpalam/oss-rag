@@ -7,8 +7,9 @@ Agent memory — two layers:
   (Future) EpisodicMemory — persisted past analyses stored in PostgreSQL +
                             vector store for cross-session recall.
 """
+
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from core.vector_store import RetrievedChunk
 
@@ -18,8 +19,8 @@ class ToolCallRecord:
     step: int
     tool_name: str
     tool_input: Dict[str, Any]
-    result_snippet: str       # first 300 chars for logging / summary
-    result_full: str          # complete result passed back to Claude
+    result_snippet: str  # first 300 chars for logging / summary
+    result_full: str  # complete result passed back to Claude
 
 
 @dataclass
@@ -28,6 +29,7 @@ class WorkingMemory:
     Scratch-pad for a single agentic run.
     Tracks every tool call and aggregates RAG chunks for citation.
     """
+
     session_id: str
     tool_calls: List[ToolCallRecord] = field(default_factory=list)
     rag_chunks: List[RetrievedChunk] = field(default_factory=list)
@@ -39,13 +41,15 @@ class WorkingMemory:
         tool_input: Dict[str, Any],
         result: str,
     ) -> None:
-        self.tool_calls.append(ToolCallRecord(
-            step=step,
-            tool_name=tool_name,
-            tool_input=tool_input,
-            result_snippet=result[:300],
-            result_full=result,
-        ))
+        self.tool_calls.append(
+            ToolCallRecord(
+                step=step,
+                tool_name=tool_name,
+                tool_input=tool_input,
+                result_snippet=result[:300],
+                result_full=result,
+            )
+        )
 
     def record_rag(self, chunks: List[RetrievedChunk]) -> None:
         """Deduplicate and accumulate RAG chunks across multiple search_documents calls."""

@@ -2,6 +2,7 @@
 Application configuration via pydantic-settings.
 All values can be overridden with environment variables.
 """
+
 from typing import List
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -39,9 +40,7 @@ class Settings(BaseSettings):
     QDRANT_COLLECTION: str = "documents"
 
     # ── PostgreSQL ────────────────────────────────────────────────────────────
-    DATABASE_URL: str = (
-        "postgresql+asyncpg://raguser:ragpassword@localhost:5432/ragdb"
-    )
+    DATABASE_URL: str = "postgresql+asyncpg://raguser:ragpassword@localhost:5432/ragdb"
 
     # ── MinIO / S3 ────────────────────────────────────────────────────────────
     S3_ENDPOINT_URL: str = "http://localhost:9000"
@@ -63,7 +62,7 @@ class Settings(BaseSettings):
     # Re-ranking: CrossEncoder second-pass over RERANK_CANDIDATES, returns top RETRIEVAL_TOP_K
     USE_RERANKING: bool = True
     RERANKER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    RERANK_CANDIDATES: int = 20   # how many to fetch from Qdrant before reranking
+    RERANK_CANDIDATES: int = 20  # how many to fetch from Qdrant before reranking
 
     # HyDE: generate a hypothetical answer, embed it, use that for dense retrieval
     # Adds ~1 Claude API call per search — off by default, enable when latency is acceptable
@@ -78,8 +77,8 @@ class Settings(BaseSettings):
     # ── Agent settings ────────────────────────────────────────────────────────
     # Domain controls which system prompt and tool set the agent uses.
     # Switch domain here without changing any other code.
-    AGENT_DOMAIN: str = "stock_analysis"   # stock_analysis | general
-    AGENT_MAX_STEPS: int = 8               # max tool-call rounds before forcing final answer
+    AGENT_DOMAIN: str = "stock_analysis"  # stock_analysis | general
+    AGENT_MAX_STEPS: int = 8  # max tool-call rounds before forcing final answer
 
 
 settings = Settings()

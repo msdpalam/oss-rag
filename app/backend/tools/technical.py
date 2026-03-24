@@ -5,6 +5,7 @@ No external TA library dependency — pure pandas/numpy calculations.
 Indicators: RSI-14, MACD(12,26,9), Bollinger Bands(20,2), SMA 20/50/200,
             EMA 12/26, Average True Range, On-Balance Volume trend.
 """
+
 import json
 
 import pandas as pd
@@ -12,8 +13,8 @@ import yfinance as yf
 
 from tools.base import BaseTool
 
-
 # ── Indicator helpers ─────────────────────────────────────────────────────────
+
 
 def _rsi(close: pd.Series, period: int = 14) -> float:
     delta = close.diff()
@@ -53,19 +54,24 @@ def _bollinger(close: pd.Series, period=20, num_std=2) -> dict:
         "bandwidth": round(bandwidth, 4),
         "percent_b": round(pct_b, 4),
         "position": (
-            "above_upper" if current > upper.iloc[-1]
-            else "below_lower" if current < lower.iloc[-1]
+            "above_upper"
+            if current > upper.iloc[-1]
+            else "below_lower"
+            if current < lower.iloc[-1]
             else "within_bands"
         ),
     }
 
 
 def _atr(high: pd.Series, low: pd.Series, close: pd.Series, period=14) -> float:
-    tr = pd.concat([
-        high - low,
-        (high - close.shift()).abs(),
-        (low - close.shift()).abs(),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            high - low,
+            (high - close.shift()).abs(),
+            (low - close.shift()).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
     return round(float(tr.ewm(span=period, adjust=False).mean().iloc[-1]), 4)
 
 
@@ -86,6 +92,7 @@ def _support_resistance(close: pd.Series, window=20) -> dict:
 
 
 # ── Tool ──────────────────────────────────────────────────────────────────────
+
 
 class TechnicalAnalysisTool(BaseTool):
     name = "technical_analysis"
@@ -145,8 +152,10 @@ class TechnicalAnalysisTool(BaseTool):
                 "rsi": {
                     "value": round(rsi_val, 2),
                     "signal": (
-                        "overbought (>70)" if rsi_val > 70
-                        else "oversold (<30)" if rsi_val < 30
+                        "overbought (>70)"
+                        if rsi_val > 70
+                        else "oversold (<30)"
+                        if rsi_val < 30
                         else "neutral (30-70)"
                     ),
                 },
