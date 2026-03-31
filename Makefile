@@ -8,7 +8,7 @@ BACKEND_DIR   := app/backend
 BACKEND_PORT  ?= 8001
 
 .PHONY: help up down build restart restart-full logs logs-be logs-fe shell \
-        test test-unit test-int lint format type-check \
+        test test-unit test-int eval eval-llm lint format type-check \
         reindex reset-qdrant clean infra-up infra-down
 
 # ── Help ──────────────────────────────────────────────────────────────────────
@@ -71,6 +71,12 @@ test-int: ## Run integration tests — requires postgres + qdrant running
 test-cov: ## Run unit tests with coverage report
 	cd $(BACKEND_DIR) && pytest tests/unit/ -v --tb=short \
 	  --cov=. --cov-omit="tests/*" --cov-report=term-missing
+
+eval: ## Run retrieval eval (requires qdrant; downloads embedder model ~90MB on first run)
+	cd $(BACKEND_DIR) && pytest tests/eval/ -v --tb=short -m eval -k "not answer_quality"
+
+eval-llm: ## Run full eval including LLM-as-judge (requires ANTHROPIC_API_KEY + RUN_EVAL=true)
+	cd $(BACKEND_DIR) && RUN_EVAL=true pytest tests/eval/ -v --tb=short -m eval
 
 # ── Code quality ──────────────────────────────────────────────────────────────
 lint: ## Run ruff linter

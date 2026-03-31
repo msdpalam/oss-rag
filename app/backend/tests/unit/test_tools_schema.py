@@ -11,12 +11,26 @@ No external services or model loading required.
 import pytest
 
 from tools import (
+    AnalystUpgradesTool,
     BaseTool,
+    CompareStocksTool,
+    CryptoTool,
+    DCFValuationTool,
+    EarningsHistoryTool,
+    EconomicIndicatorsTool,
     FundamentalTool,
+    InsiderTransactionsTool,
+    InstitutionalHoldingsTool,
+    MarketBreadthTool,
+    OptionsChainTool,
+    PortfolioSummaryTool,
     RAGTool,
     RecallAnalysesTool,
+    RetirementCalculatorTool,
+    SectorPerformanceTool,
     StockNewsTool,
     StockPriceTool,
+    StockScreenerTool,
     TechnicalAnalysisTool,
     default_tools,
 )
@@ -28,6 +42,20 @@ ALL_TOOL_CLASSES = [
     TechnicalAnalysisTool,
     StockNewsTool,
     RecallAnalysesTool,
+    OptionsChainTool,
+    EarningsHistoryTool,
+    InsiderTransactionsTool,
+    InstitutionalHoldingsTool,
+    SectorPerformanceTool,
+    StockScreenerTool,
+    MarketBreadthTool,
+    AnalystUpgradesTool,
+    DCFValuationTool,
+    CompareStocksTool,
+    EconomicIndicatorsTool,
+    CryptoTool,
+    PortfolioSummaryTool,
+    RetirementCalculatorTool,
 ]
 
 EXPECTED_TOOL_NAMES = {
@@ -37,6 +65,20 @@ EXPECTED_TOOL_NAMES = {
     "technical_analysis",
     "get_stock_news",
     "recall_past_analyses",
+    "get_options_chain",
+    "get_earnings_history",
+    "get_insider_transactions",
+    "get_institutional_holdings",
+    "get_sector_performance",
+    "screen_stocks",
+    "get_market_breadth",
+    "get_analyst_upgrades",
+    "calculate_dcf",
+    "compare_stocks",
+    "get_economic_indicators",
+    "get_crypto_data",
+    "get_portfolio_summary",
+    "calculate_retirement",
 }
 
 
@@ -98,10 +140,11 @@ def test_claude_schema_input_schema_is_object(ToolClass):
 
 
 @pytest.mark.parametrize("ToolClass", ALL_TOOL_CLASSES)
-def test_claude_schema_has_properties(ToolClass):
+def test_claude_schema_has_properties_key(ToolClass):
+    # All tools must have a "properties" dict (may be empty for no-arg tools)
     schema = ToolClass().to_claude_schema()
     assert "properties" in schema["input_schema"]
-    assert len(schema["input_schema"]["properties"]) > 0
+    assert isinstance(schema["input_schema"]["properties"], dict)
 
 
 @pytest.mark.parametrize("ToolClass", ALL_TOOL_CLASSES)
@@ -141,3 +184,18 @@ def test_rag_tool_requires_query():
 def test_recall_tool_requires_query():
     schema = RecallAnalysesTool().to_claude_schema()
     assert "query" in schema["input_schema"]["required"]
+
+
+def test_crypto_tool_requires_symbols():
+    schema = CryptoTool().to_claude_schema()
+    assert "symbols" in schema["input_schema"]["required"]
+
+
+def test_retirement_tool_requires_annual_expenses():
+    schema = RetirementCalculatorTool().to_claude_schema()
+    assert "annual_expenses" in schema["input_schema"]["required"]
+
+
+def test_portfolio_summary_tool_has_no_required_params():
+    schema = PortfolioSummaryTool().to_claude_schema()
+    assert schema["input_schema"].get("required", []) == []

@@ -80,5 +80,15 @@ class Settings(BaseSettings):
     AGENT_DOMAIN: str = "stock_analysis"  # stock_analysis | general
     AGENT_MAX_STEPS: int = 8  # max tool-call rounds before forcing final answer
 
+    # ── Investment Firm ───────────────────────────────────────────────────────
+    # When True, all agents refuse off-topic (non-finance) questions.
+    FIRM_MODE: bool = True
+    FIRM_NAME: str = "Apex Capital Advisors"
+
+    # ── Auth (JWT) ────────────────────────────────────────────────────────────
+    JWT_SECRET_KEY: str = "change-me-in-production-use-random-32-char-string"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRY_HOURS: int = 24
+
 
 settings = Settings()

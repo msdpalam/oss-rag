@@ -10,7 +10,6 @@ Useful for:
 
 import json
 
-from agents.episodic_memory import episodic_memory
 from tools.base import BaseTool
 
 
@@ -43,6 +42,8 @@ class RecallAnalysesTool(BaseTool):
     }
 
     async def execute(self, query: str, ticker: str = None, top_k: int = 3) -> str:
+        from agents.episodic_memory import episodic_memory  # deferred to break circular import
+
         top_k = min(top_k, 5)
         episodes = await episodic_memory.search(
             query=query,

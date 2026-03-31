@@ -13,7 +13,7 @@ Retrieval pipeline (all steps are individually feature-flagged):
   6. Format results with source/page metadata for citation
 """
 
-from typing import List
+from typing import List, Optional
 
 import structlog
 
@@ -59,6 +59,9 @@ class RAGTool(BaseTool):
     # Expose retrieved chunks so the orchestrator can surface them as citations
     last_chunks: List[RetrievedChunk] = []
 
+    # Set per-request by AgentOrchestrator for per-user document isolation
+    _allowed_document_ids: Optional[List[str]] = None
+
     async def execute(self, query: str, top_k: int = 6) -> str:
         # ── Step 1: Sparse (BM25) encode the query ────────────────────────────
         sparse_indices, sparse_values = bm25_encode(query)
@@ -79,6 +82,7 @@ class RAGTool(BaseTool):
             query_vector=dense_vec,
             top_k=fetch_k,
             sparse_vector=sparse_vec,
+            filter_document_ids=self._allowed_document_ids,
         )
 
         # ── Step 4: Re-rank candidates → top_k ───────────────────────────────

@@ -14,6 +14,8 @@ Strategy
   they share the same event loop as the session-scoped client fixture; this
   prevents asyncpg / qdrant-client connections from being "attached to a
   different loop"
+- The client fixture registers a CI test user on startup and injects a JWT
+  Bearer token into every request, so all protected endpoints return 200 not 401
 
 Environment variables
 ─────────────────────
@@ -41,6 +43,9 @@ os.environ.setdefault("S3_ENDPOINT_URL", "http://localhost:9000")
 os.environ.setdefault("S3_ACCESS_KEY", "ragapp")
 os.environ.setdefault("S3_SECRET_KEY", "ragapp123")
 
+_CI_EMAIL = "ci-test@integration.example.org"
+_CI_PASSWORD = "ci-integration-password-123"
+
 
 @pytest.fixture(scope="session")
 def patch_ml_startup():
@@ -59,9 +64,12 @@ def patch_ml_startup():
 @pytest.fixture(scope="session")
 async def client(patch_ml_startup):
     """
-    Async HTTP client pointed at the full FastAPI app.
-    LifespanManager explicitly sends ASGI lifespan startup/shutdown events
-    so that init_db() and ensure_collection() run before any request.
+    Async HTTP client pointed at the full FastAPI app with a valid JWT token.
+
+    On first use it registers (or re-logs-in) a CI test user and injects
+    Authorization: Bearer <token> as a default header. All protected endpoints
+    then return 200 rather than 401 without any per-test boilerplate.
+
     Session-scoped so all tests share one asyncpg pool and qdrant client.
     """
     from main import app
@@ -71,4 +79,25 @@ async def client(patch_ml_startup):
             transport=ASGITransport(app=manager.app),
             base_url="http://test",
         ) as ac:
+            # Register the CI user — 409 means already exists, which is fine
+            reg = await ac.post(
+                "/auth/register",
+                json={
+                    "email": _CI_EMAIL,
+                    "password": _CI_PASSWORD,
+                    "display_name": "CI Test User",
+                },
+            )
+            if reg.status_code in (200, 201):
+                token = reg.json()["access_token"]
+            else:
+                # Already registered from a previous run — just log in
+                login = await ac.post(
+                    "/auth/login",
+                    json={"email": _CI_EMAIL, "password": _CI_PASSWORD},
+                )
+                login.raise_for_status()
+                token = login.json()["access_token"]
+
+            ac.headers.update({"Authorization": f"Bearer {token}"})
             yield ac

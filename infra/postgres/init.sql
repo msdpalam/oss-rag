@@ -6,15 +6,36 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
--- ── Users & Sessions ──────────────────────────────────────────────────────────
+-- ── Users ─────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS users (
-    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    display_name VARCHAR(255),
-    email       VARCHAR(255) UNIQUE,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    display_name  VARCHAR(255),
+    email         VARCHAR(255) UNIQUE,
+    password_hash VARCHAR(255) NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ── Investor Profiles ─────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS investor_profiles (
+    user_id                  UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    age                      INTEGER CHECK (age BETWEEN 18 AND 100),
+    risk_tolerance           INTEGER CHECK (risk_tolerance BETWEEN 1 AND 5),
+    horizon_years            INTEGER CHECK (horizon_years BETWEEN 1 AND 50),
+    goals                    TEXT[],
+    portfolio_size_usd       BIGINT,
+    monthly_contribution_usd INTEGER,
+    tax_accounts             TEXT[],
+    preferred_agent          VARCHAR(50),
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_investor_profiles_user ON investor_profiles(user_id);
+
+-- ── Sessions ──────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS sessions (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -43,7 +64,9 @@ CREATE TABLE IF NOT EXISTS messages (
     model_used          VARCHAR(100),
     prompt_tokens       INTEGER,
     completion_tokens   INTEGER,
-    latency_ms          INTEGER
+    latency_ms          INTEGER,
+    feedback            VARCHAR(10) CHECK (feedback IN ('up', 'down')),
+    feedback_at         TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
@@ -96,6 +119,24 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 
 CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON document_chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_qdrant_id ON document_chunks(qdrant_point_id);
+
+-- ── Virtual Portfolio ─────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS portfolio_positions (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ticker          VARCHAR(20) NOT NULL,
+    asset_type      VARCHAR(20) NOT NULL DEFAULT 'stock'
+                    CHECK (asset_type IN ('stock', 'etf', 'crypto', 'crypto_etf')),
+    shares          NUMERIC(18, 6) NOT NULL CHECK (shares > 0),
+    avg_cost_usd    NUMERIC(18, 4) NOT NULL CHECK (avg_cost_usd >= 0),
+    notes           TEXT,
+    added_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_portfolio_user ON portfolio_positions(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_user_ticker ON portfolio_positions(user_id, ticker);
 
 -- ── Auto-update updated_at triggers ──────────────────────────────────────────
 

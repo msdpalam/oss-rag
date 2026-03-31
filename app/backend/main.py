@@ -9,13 +9,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
 from core.config import settings
 from core.database import init_db
 from core.embedder import embedder
+from core.telemetry import configure_telemetry
 from core.vector_store import vector_store
-from routers import chat, documents, health, sessions
+from routers import auth, chat, documents, health, messages, portfolio, profile, sessions
 
 log = structlog.get_logger()
+
+configure_telemetry()
 
 
 @asynccontextmanager
@@ -73,7 +78,13 @@ app.add_middleware(
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+FastAPIInstrumentor.instrument_app(app)
+
 app.include_router(health.router, tags=["health"])
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(sessions.router, prefix="/sessions", tags=["sessions"])
 app.include_router(documents.router, prefix="/documents", tags=["documents"])
+app.include_router(messages.router, prefix="/messages", tags=["messages"])
+app.include_router(profile.router, prefix="/profile", tags=["profile"])
+app.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])

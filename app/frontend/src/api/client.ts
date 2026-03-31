@@ -4,7 +4,7 @@
  * REST calls use fetch. File uploads use XHR for progress events.
  * SSE streaming uses fetch + ReadableStream (works for POST, unlike EventSource).
  */
-import type { ChatRequest, CitedChunk, Document, Message, Session, StreamEvent } from '../types';
+import type { ChatRequest, Document, InvestorProfile, Message, Session, StreamEvent } from '../types';
 
 const API_BASE: string =
   (import.meta.env.VITE_API_URL as string | undefined) ?? '';
@@ -13,16 +13,28 @@ const API_BASE: string =
 
 // ── Internal helper ───────────────────────────────────────────────────────────
 
+function authHeader(): Record<string, string> {
+  const token = localStorage.getItem('auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...authHeader(),
       ...options.headers,
     },
   });
 
   if (res.status === 204) return undefined as T;
+
+  if (res.status === 401) {
+    // Token expired or revoked — signal AuthContext to clear the session
+    window.dispatchEvent(new CustomEvent('auth:logout'));
+    throw new Error('Session expired. Please sign in again.');
+  }
 
   if (!res.ok) {
     let detail = res.statusText;
@@ -49,6 +61,12 @@ export const deleteSession = (id: string): Promise<void> =>
 export const getMessages = (sessionId: string): Promise<Message[]> =>
   request<Message[]>(`/sessions/${sessionId}/messages`);
 
+export const submitFeedback = (messageId: string, value: 'up' | 'down'): Promise<void> =>
+  request<void>(`/messages/${messageId}/feedback`, {
+    method: 'POST',
+    body: JSON.stringify({ value }),
+  });
+
 // ── Chat streaming ────────────────────────────────────────────────────────────
 
 /**
@@ -69,6 +87,7 @@ export async function* streamChat(
     headers: {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
+      ...authHeader(),
     },
     body: JSON.stringify(req),
     signal,
@@ -107,6 +126,57 @@ export async function* streamChat(
     reader.releaseLock();
   }
 }
+
+// ── Investor Profile ──────────────────────────────────────────────────────────
+
+export const getProfile = (): Promise<InvestorProfile> =>
+  request<InvestorProfile>('/profile');
+
+export const updateProfile = (data: Partial<InvestorProfile>): Promise<InvestorProfile> =>
+  request<InvestorProfile>('/profile', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+
+// ── Portfolio ─────────────────────────────────────────────────────────────────
+
+export interface PortfolioPosition {
+  id: string;
+  ticker: string;
+  asset_type: string;
+  shares: number;
+  avg_cost_usd: number;
+  notes?: string;
+  added_at: string;
+  updated_at: string;
+}
+
+export const listPositions = (): Promise<PortfolioPosition[]> =>
+  request<PortfolioPosition[]>('/portfolio');
+
+export const addPosition = (data: {
+  ticker: string;
+  asset_type: string;
+  shares: number;
+  avg_cost_usd: number;
+  notes?: string;
+}): Promise<PortfolioPosition> =>
+  request<PortfolioPosition>('/portfolio/positions', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const updatePosition = (
+  id: string,
+  data: { shares?: number; avg_cost_usd?: number; notes?: string },
+): Promise<PortfolioPosition> =>
+  request<PortfolioPosition>(`/portfolio/positions/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+
+export const deletePosition = (id: string): Promise<void> =>
+  request<void>(`/portfolio/positions/${id}`, { method: 'DELETE' });
 
 // ── Documents ─────────────────────────────────────────────────────────────────
 
@@ -165,6 +235,8 @@ export function uploadDocument(
     xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
 
     xhr.open('POST', `${API_BASE}/documents`);
+    const token = localStorage.getItem('auth_token');
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.send(formData);
   });
 }

@@ -1,6 +1,6 @@
-# OSS RAG Stack
+# Apex Capital Advisors — Virtual Investment Firm
 
-A cloud-agnostic, multi-step **agentic AI** system for document-grounded research and stock analysis — built as an open-source alternative to the Azure Search + OpenAI Demo pattern, with zero vendor lock-in.
+A cloud-agnostic, self-hosted **multi-agent investment platform** — six named AI analysts specialising in equity research, technical trading, macro strategy, retirement planning, crypto, and portfolio construction. Built on a custom agentic RAG stack as an open-source alternative to the Azure Search + OpenAI Demo pattern, with zero vendor lock-in.
 
 ## Stack comparison
 
@@ -23,22 +23,37 @@ A cloud-agnostic, multi-step **agentic AI** system for document-grounded researc
 
 ## What it does
 
-Ask a question → the agent plans a multi-step analysis using real tools → streams the answer token by token → stores the analysis in memory for future sessions.
+Ask a question → select a focus area → plans a multi-step investigation using 20 real market data tools → streams the answer token by token → remembers past analyses for the next session.
 
-**As a stock analysis agent:**
+### Focus Areas
 
-- Live price, fundamentals, and technical indicators via yfinance (no API key)
-- News headlines for market sentiment
-- Searches your uploaded research documents (10-Ks, reports, transcripts)
-- Recalls past analyses to surface metric drift across sessions
+Select your investment area from the dropdown in the chat header. Each area routes to a specialist with a curated tool subset and a tailored system prompt.
 
-**As a document Q&A system:**
+| Focus Area | Specialisation | Tools |
+| --- | --- | --- |
+| **Equity Research** | DCF, fundamentals, earnings, insider/institutional signals, peer comparison | 11 |
+| **Technical Analysis** | Price action, options flow, market breadth, momentum indicators | 6 |
+| **Macro & Economics** | Yield curve, sector rotation, economic indicators, top-down | 7 |
+| **Retirement Planning** | Low-beta quality, dividends, tax-advantaged strategy, retirement projections, portfolio P&L | 10 |
+| **Crypto & Digital Assets** | Crypto prices (CoinGecko), crypto ETFs (IBIT, FBTC), on-chain news | 6 |
+| **Portfolio Strategy** | Screening, allocation, live P&L summary, correlation, position sizing | 10 |
+| **All Areas** | Routes to the best specialist automatically | 20 |
 
-- Upload PDF, DOCX, PPTX, HTML, images
+### Market Intelligence (20 tools, no API key needed)
+
+Live price · Fundamentals · Technical analysis (RSI, MACD, BB, ATR, OBV) · Options chain · Earnings history · Insider transactions · Institutional holdings · Sector performance · Stock screener · Market breadth · Analyst upgrades · DCF valuation · Peer comparison · Economic indicators · News headlines · Crypto prices (CoinGecko) · Virtual portfolio P&L · Retirement calculator · Episodic memory · Document search
+
+### Per-User Investor Profile
+
+Set your age, risk tolerance (1–5), investment horizon, goals, portfolio size, and tax-advantaged accounts. Every analyst injects your profile into their recommendations — personalised, not generic.
+
+### Document Intelligence
+
+- Upload PDF, DOCX, PPTX, HTML, images (10-Ks, earnings transcripts, research reports)
 - **Hybrid search** — BM25 keyword + dense semantic, fused via RRF
 - **CrossEncoder re-ranking** — precision second-pass over 20 candidates
 - **HyDE** (optional) — hypothetical document embedding for abstract queries
-- Two modes: strict document-only answers or full expert knowledge + documents
+- Strict document-only mode or full expert knowledge + documents
 
 ---
 
@@ -65,14 +80,16 @@ make up
 # or: docker compose up -d
 ```
 
-First run downloads the embedding model (~90 MB) and CrossEncoder (~86 MB). Subsequent starts are instant.
+Docker pulls images, builds the backend and frontend, runs health checks, and wires up the dependency chain automatically. First run also downloads the embedding model (~90 MB) and CrossEncoder (~86 MB) into a persistent volume — subsequent starts are instant.
 
-| Service | URL |
-| --- | --- |
-| **Chat UI** | <http://localhost:3001> |
-| **API docs** | <http://localhost:8001/docs> |
-| **Qdrant dashboard** | <http://localhost:6333/dashboard> |
-| **MinIO console** | <http://localhost:9001> |
+| Service | URL | Notes |
+| --- | --- | --- |
+| **Chat UI** | <http://localhost:3010> | React dev server with hot-reload |
+| **API** | <http://localhost:8010> | FastAPI — `/docs` available in dev mode |
+| **Qdrant dashboard** | <http://localhost:6333/dashboard> | Vector DB explorer |
+| **MinIO console** | <http://localhost:9001> | Object storage browser |
+| **Adminer** | <http://localhost:8011> | SQL client — start with `--profile dev-tools` |
+| **Everything via Nginx** | <http://localhost:8090> | Production proxy — start with `--profile production` |
 
 ### 3. Index your documents
 
@@ -89,41 +106,112 @@ Supported formats: PDF, DOCX, PPTX, XLSX, TXT, MD, HTML, PNG, JPG, WEBP.
 
 ### 4. Start chatting
 
-Open <http://localhost:3001> and ask questions. Toggle between **Expert + Context** and **Strict RAG** modes in the chat header.
+Open <http://localhost:3010> and ask questions. Select a **Focus Area** and toggle between **Expert + Context** and **Strict RAG** modes in the chat header.
 
 ---
 
 ## Architecture
 
+### Container topology
+
+`docker compose up -d` starts **7 containers** on a private bridge network (`172.20.0.0/16`). Each service has a fixed IP so containers address each other by name with no port conflicts on the host.
+
 ```text
-┌─────────────────────────────────────────────────────────────────────┐
-│  Frontend  React / TypeScript / Tailwind                            │
-│  Chat · Mode toggle · Session history · Citations panel             │
-└─────────────────────────┬───────────────────────────────────────────┘
-                          │ SSE / REST
-┌─────────────────────────▼───────────────────────────────────────────┐
-│  FastAPI backend                                                     │
-│                                                                      │
-│  AgentOrchestrator  ──► Claude tool-use loop (max 8 steps)          │
-│       │                                                              │
-│       ├─► recall_past_analyses  ──► Qdrant episodes collection       │
-│       ├─► search_documents      ──► BM25 + Dense → RRF → Rerank     │
-│       ├─► get_stock_price       ──► yfinance                        │
-│       ├─► get_fundamentals      ──► yfinance                        │
-│       ├─► technical_analysis    ──► yfinance + pandas               │
-│       └─► get_stock_news        ──► yfinance                        │
-│                                                                      │
-│  Ingestion:  PDF/DOCX/HTML → chunk → BM25 + embed → Qdrant          │
-└──────────┬──────────────────────────────────────────────────────────┘
-           │
-    ┌──────▼──────┐   ┌────────────────┐   ┌──────────────────────┐
-    │ PostgreSQL  │   │     Qdrant     │   │  MinIO (S3)          │
-    │ sessions    │   │  documents +   │   │  raw files           │
-    │ messages    │   │  episodes      │   │                      │
-    └─────────────┘   └────────────────┘   └──────────────────────┘
+ HOST PORTS                CONTAINER              IMAGE                        ROLE
+ ──────────────────────────────────────────────────────────────────────────────────────
+ :3010                     oss-rag-frontend       built ./app/frontend          React / Vite dev server
+ :8010                     oss-rag-backend        built ./app/backend           FastAPI + ML models
+ :6333 :6334               oss-rag-qdrant         qdrant/qdrant:v1.13.6         Vector DB (REST + gRPC)
+ :5440                     oss-rag-postgres       postgres:16-alpine            Chat history + metadata
+ :9000 :9001               oss-rag-minio          minio/minio                   S3-compatible object store
+ (one-shot)                oss-rag-minio-init     minio/mc                      Bucket + CORS bootstrap
+ :8090 (--profile prod)    oss-rag-nginx          nginx:1.27-alpine             Reverse proxy
+ :8011 (--profile tools)   oss-rag-adminer        adminer:4.8.1                 Postgres SQL browser
 ```
 
-See [`docs/ARCHITECTURE_v1.md`](docs/ARCHITECTURE_v1.md) for full Mermaid diagrams.
+### Health-check dependency chain
+
+Docker Compose enforces startup ordering via `depends_on: condition: service_healthy`. Nothing starts in the wrong order, even on a cold first boot:
+
+```text
+  qdrant ──────────────────────────────────────┐
+  postgres ─────────────────────────────────── ├──► backend (healthy) ──► frontend
+  minio ──► minio-init (buckets + user) ───────┘
+```
+
+The backend only starts once Qdrant, Postgres, and MinIO are all reporting healthy. The frontend waits for the backend. If any dependency is slow (e.g. Postgres fsync on first init) the chain waits automatically.
+
+### Data persistence
+
+Four named Docker volumes survive container restarts, image rebuilds, and `docker compose down`:
+
+| Volume | What it stores |
+| --- | --- |
+| `qdrant_data` | All vector collections — documents + episodic memory |
+| `postgres_data` | All sessions, messages, feedback, document metadata |
+| `minio_data` | All raw uploaded document files |
+| `backend_model_cache` | Downloaded ML models (embedder ~90 MB, reranker ~86 MB) |
+
+> **Warning:** `docker compose down -v` deletes volumes. Use plain `docker compose down` to preserve data.
+
+### Dev vs production profiles
+
+| Mode | Command | What starts |
+| --- | --- | --- |
+| Development (default) | `docker compose up -d` | All core services; hot-reload on backend + frontend src |
+| With DB browser | `docker compose --profile dev-tools up -d` | + Adminer on `:8011` |
+| Production | `docker compose --profile production up -d` | + Nginx reverse proxy on `:8090` |
+
+In development, `./app/backend` and `./app/frontend/src` are bind-mounted as live volumes — code changes reflect immediately without rebuilding images.
+
+### Logical architecture
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Frontend  (oss-rag-frontend · :3010)                                   │
+│  Auth · Focus Area dropdown · Investor Profile settings                 │
+│  Streaming chat · Markdown + syntax highlighting · Feedback             │
+│  Collapsible sidebar · Session history · Document manager · Portfolio   │
+└─────────────────────────┬───────────────────────────────────────────────┘
+                          │ SSE streaming / REST  (Bearer JWT)
+┌─────────────────────────▼───────────────────────────────────────────────┐
+│  Backend  (oss-rag-backend · :8010)                                     │
+│                                                                          │
+│  JWT Auth  ──► per-user data isolation (sessions, docs, RAG)            │
+│  FIRM_MODE  ──► finance-only domain guardrail on every request          │
+│                                                                          │
+│  AgentOrchestrator(agent_id, investor_profile, user_id)                 │
+│    ──► routes to 1 of 6 focus areas with specialised prompt + tools     │
+│    ──► injects client profile into system prompt                        │
+│    ──► Claude tool-use loop (max 8 steps)  +  OTel spans                │
+│       │                                                                  │
+│       ├─ recall_past_analyses  ──► Qdrant episodes collection            │
+│       ├─ search_documents      ──► BM25 + Dense → RRF → CrossEncoder    │
+│       ├─ get_stock_price / get_fundamentals / technical_analysis        │
+│       ├─ get_options_chain / get_earnings_history / get_insider_...     │
+│       ├─ get_sector_performance / screen_stocks / get_market_breadth    │
+│       ├─ get_analyst_upgrades / calculate_dcf / compare_stocks          │
+│       ├─ get_economic_indicators / get_stock_news    all via yfinance   │
+│       ├─ get_crypto_data        ──► CoinGecko free API + yfinance ETFs  │
+│       ├─ get_portfolio_summary  ──► live P&L on user's positions        │
+│       └─ calculate_retirement   ──► FIRE number + projection table      │
+│                                                                          │
+│  Ingestion:  PDF/DOCX/HTML → chunk → BM25 + embed → Qdrant             │
+└────┬─────────────────────────────────────────────────────────────────────┘
+     │
+┌────▼──────────────┐  ┌──────────────────────────┐  ┌──────────────────┐
+│ PostgreSQL        │  │  Qdrant                  │  │  MinIO (S3)      │
+│ (:5440)           │  │  (:6333/:6334)           │  │  (:9000)         │
+│ users             │  │  documents collection    │  │  raw files       │
+│ investor_profiles │  │  (dense + BM25 sparse)   │  │                  │
+│ portfolio_pos.    │  │  episodes collection     │  │                  │
+│ sessions          │  │  (past analyses)         │  │                  │
+│ messages+feedback │  │                          │  │                  │
+│ documents+chunks  │  │                          │  │                  │
+└───────────────────┘  └──────────────────────────┘  └──────────────────┘
+```
+
+See [`docs/ARCHITECTURE_v1.md`](docs/ARCHITECTURE_v1.md) for full Mermaid diagrams and the microservices decomposition plan.
 
 ---
 
@@ -150,7 +238,7 @@ make infra-up       # start postgres, qdrant, minio only
 cd app/backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
-uvicorn main:app --reload --port 8001
+uvicorn main:app --reload --port 8010
 ```
 
 ### Run frontend locally
@@ -185,6 +273,14 @@ Tests are organised in `app/backend/tests/`:
 | `unit/test_tools_schema.py` | Tool contract, Claude schema structure | None |
 | `integration/test_health.py` | `/health` and `/health/ready` endpoints | Postgres, Qdrant |
 | `integration/test_sessions.py` | Sessions list/get, 404 handling | Postgres |
+| `integration/test_messages.py` | Feedback endpoint (400/404/422/204, persistence, overwrite) | Postgres |
+
+**Smoke test** (against a live stack, no pytest):
+
+```bash
+python scripts/smoke_test.py              # full test including one LLM call
+python scripts/smoke_test.py --skip-chat  # fast mode, no API key needed
+```
 
 ---
 
@@ -263,11 +359,13 @@ oss-rag/
 │   │   │   ├── vector_store.py      # Qdrant hybrid search
 │   │   │   ├── storage.py           # MinIO / S3 client
 │   │   │   ├── database.py          # SQLAlchemy async
-│   │   │   └── models.py            # ORM models
+│   │   │   ├── models.py            # ORM models
+│   │   │   └── telemetry.py         # OpenTelemetry setup (no-op when unconfigured)
 │   │   ├── routers/
 │   │   │   ├── chat.py              # SSE streaming + JSON chat
 │   │   │   ├── documents.py         # upload / list / reindex
 │   │   │   ├── sessions.py          # session CRUD + message history
+│   │   │   ├── messages.py          # feedback endpoint
 │   │   │   └── health.py            # liveness + readiness
 │   │   ├── tools/
 │   │   │   ├── base.py              # BaseTool abstract class
@@ -287,7 +385,7 @@ oss-rag/
 │   │   └── pyproject.toml           # pytest + ruff config
 │   └── frontend/
 │       ├── src/
-│       │   ├── components/          # ChatView, MessageBubble, ...
+│       │   ├── components/          # ChatView, MessageBubble, HelpModal, MarkdownContent, ...
 │       │   ├── api/client.ts        # typed API + SSE client
 │       │   └── types/index.ts       # shared TypeScript types
 │       └── Dockerfile
@@ -323,13 +421,84 @@ CD (deploy on merge to main) is planned for a future iteration.
 
 ---
 
+## What we've built
+
+See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for the full version history and [`docs/ARCHITECTURE_v1.md`](docs/ARCHITECTURE_v1.md) for system diagrams.
+
+| Phase | Theme | Status |
+| --- | --- | --- |
+| v0.1 | Foundation — Docker stack, RAG pipeline, SSE streaming, session history | ✅ Done |
+| v0.2 | Chunking robustness — sentence-aware splitting, min-size filter, overlap | ✅ Done |
+| v0.3 | Chat modes — Strict RAG vs Expert + Context toggle | ✅ Done |
+| v0.4 | Agentic architecture — tool-use loop, stock analysis tools, working memory | ✅ Done |
+| v0.5 | Episodic memory — past-analysis recall, news tool, temporal comparison | ✅ Done |
+| v0.6 | Retrieval quality — BM25 hybrid search, CrossEncoder re-ranking, HyDE | ✅ Done |
+| v0.7 | Observability & UX — onboarding modal, feedback buttons, OpenTelemetry, smoke tests | ✅ Done |
+| v0.8 | Rich formatting — Markdown rendering, syntax-highlighted code, Tailwind Typography | ✅ Done |
+
 ## Roadmap
 
-See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for the full feature history.
+### Phase 3 — Agent Intelligence
 
-Next:
+- [ ] **Parallel tool calls** — fan out multiple tools in a single Claude response (e.g. price + technicals + news simultaneously); cut multi-tool latency by ~60%
+- [ ] **Structured output mode** — JSON-schema-validated responses for chart data, comparison tables, portfolio summaries
+- [ ] **Tool result caching** — TTL cache on stock data tools; avoid redundant yfinance calls within a session
+- [ ] **Portfolio mode** — analyse a basket of tickers in one request; cross-asset correlation and relative strength
 
-- [ ] Phase 2: Observability — OpenTelemetry tracing, RAGAS evaluation, feedback buttons
-- [ ] Phase 3: Agent improvements — parallel tool calls, structured JSON output, portfolio mode
-- [ ] Phase 4: Document intelligence — structured table extraction, incremental re-indexing
-- [ ] Phase 5: Auth — JWT-based multi-user support, per-user document namespacing
+### Phase 4 — Document Intelligence
+
+- [ ] **Table extraction as DataFrames** — detect and parse tables into structured data; allow Claude to run calculations against them
+- [ ] **Incremental re-indexing** — diff-based re-index; only re-embed changed pages rather than the whole document
+- [ ] **Document versioning** — track document revisions; surface "Q3 revenue changed from $X to $Y" automatically
+- [ ] **Multi-modal queries** — accept image input alongside text; analyse charts, screenshots, and scanned documents
+
+### Phase 5 — Multi-User & Auth
+
+- [ ] **JWT authentication** — secure login, per-user sessions and document namespaces
+- [ ] **Team sharing** — share document collections and sessions across a workspace
+- [ ] **Role-based access** — reader / analyst / admin roles; per-document visibility controls
+- [ ] **Usage metering** — track token consumption and document storage per user
+
+### Phase 6 — Microservices Decomposition
+
+The current monolithic FastAPI backend is intentionally simple for local development. As load scales, each concern can be extracted into its own service:
+
+```text
+┌─────────────┐   ┌──────────────────┐   ┌─────────────────────┐
+│  API Gateway │──►│  Chat Service    │──►│  Agent Orchestrator  │
+│  (Nginx /   │   │  (FastAPI SSE)   │   │  (stateless worker) │
+│   Traefik)  │   └──────────────────┘   └─────────────────────┘
+└─────────────┘
+       │           ┌──────────────────┐   ┌─────────────────────┐
+       ├──────────►│ Ingestion Worker  │   │  Embedding Service  │
+       │           │ (Celery / ARQ)   │──►│  (model server,     │
+       │           └──────────────────┘   │   swappable)        │
+       │                                  └─────────────────────┘
+       │           ┌──────────────────┐   ┌─────────────────────┐
+       └──────────►│ Documents API    │   │  Reranker Service   │
+                   │ (upload / list)  │   │  (CrossEncoder,     │
+                   └──────────────────┘   │   GPU-accelerated)  │
+                                          └─────────────────────┘
+```
+
+Each service is independently deployable, scalable, and replaceable:
+
+- **Swap the embedding model** without touching the chat service
+- **Scale the ingestion worker** independently during bulk uploads
+- **GPU reranking** on a dedicated node without co-locating with the API
+- **Message broker** (Redis Streams / RabbitMQ) for async ingestion pipeline
+- **Kubernetes + HPA** for auto-scaling chat workers under load
+
+### Phase 7 — Evaluation & Quality
+
+- [ ] **RAGAS evaluation** — automated faithfulness, answer relevancy, context precision/recall metrics on a golden test set
+- [ ] **Retrieval A/B testing** — compare BM25-only vs hybrid vs HyDE on real query logs
+- [ ] **Answer quality dashboard** — visualise feedback signals (thumbs up/down), latency, token cost per query
+- [ ] **Hallucination detection** — flag low-grounding responses before they reach the user
+
+### Phase 8 — Advanced Capabilities
+
+- [ ] **Web search tool** — real-time search (Brave / Serper) as an agent tool alongside document search
+- [ ] **Code execution** — sandboxed Python interpreter for data analysis on uploaded CSVs / Excel files
+- [ ] **Scheduled runs** — nightly portfolio analysis reports delivered via email or Slack
+- [ ] **Connector framework** — plug in live data sources (Bloomberg, Refinitiv, internal databases) as first-class tools

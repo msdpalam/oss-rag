@@ -15,13 +15,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.auth import get_current_user
 from core.database import get_db
-from core.models import Message, Session
+from core.models import Message, Session, User
 
 router = APIRouter()
 log = structlog.get_logger()
-
-ANON_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 # ── Response schemas ──────────────────────────────────────────────────────────
@@ -61,16 +60,21 @@ class MessageResponse(BaseModel):
     prompt_tokens: Optional[int]
     completion_tokens: Optional[int]
     latency_ms: Optional[int]
+    feedback: Optional[str]
+    feedback_at: Optional[str]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
 @router.get("", response_model=List[SessionResponse])
-async def list_sessions(db: AsyncSession = Depends(get_db)):
+async def list_sessions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(Session)
-        .where(Session.user_id == ANON_USER_ID)
+        .where(Session.user_id == current_user.id)
         .where(Session.is_archived == False)  # noqa: E712
         .order_by(Session.updated_at.desc())
         .limit(50)
@@ -79,13 +83,19 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{session_id}", response_model=SessionResponse)
-async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
+async def get_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     try:
         sid = uuid.UUID(session_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid session ID")
 
-    result = await db.execute(select(Session).where(Session.id == sid))
+    result = await db.execute(
+        select(Session).where(Session.id == sid).where(Session.user_id == current_user.id)
+    )
     sess = result.scalar_one_or_none()
     if not sess:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -93,13 +103,19 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{session_id}", status_code=204)
-async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     try:
         sid = uuid.UUID(session_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid session ID")
 
-    result = await db.execute(select(Session).where(Session.id == sid))
+    result = await db.execute(
+        select(Session).where(Session.id == sid).where(Session.user_id == current_user.id)
+    )
     sess = result.scalar_one_or_none()
     if not sess:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -109,13 +125,21 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{session_id}/messages", response_model=List[MessageResponse])
-async def get_messages(session_id: str, db: AsyncSession = Depends(get_db)):
+async def get_messages(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     try:
         sid = uuid.UUID(session_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid session ID")
 
-    sess = (await db.execute(select(Session).where(Session.id == sid))).scalar_one_or_none()
+    sess = (
+        await db.execute(
+            select(Session).where(Session.id == sid).where(Session.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
     if not sess:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -135,6 +159,8 @@ async def get_messages(session_id: str, db: AsyncSession = Depends(get_db)):
             prompt_tokens=m.prompt_tokens,
             completion_tokens=m.completion_tokens,
             latency_ms=m.latency_ms,
+            feedback=m.feedback,
+            feedback_at=m.feedback_at.isoformat() if m.feedback_at else None,
         )
         for m in result.scalars()
     ]

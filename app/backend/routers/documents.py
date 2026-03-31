@@ -17,15 +17,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.auth import get_current_user
 from core.config import settings
 from core.database import get_db
-from core.models import Document
+from core.models import Document, User
 from core.storage import storage
 
 router = APIRouter()
 log = structlog.get_logger()
-
-ANON_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 ALLOWED_CONTENT_TYPES = {
     "application/pdf",
@@ -84,8 +83,15 @@ class DocumentResponse(BaseModel):
 
 
 @router.get("", response_model=List[DocumentResponse])
-async def list_documents(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Document).order_by(Document.created_at.desc()))
+async def list_documents(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Document)
+        .where(Document.uploaded_by == current_user.id)
+        .order_by(Document.created_at.desc())
+    )
     return [DocumentResponse.from_orm(d) for d in result.scalars()]
 
 
@@ -93,6 +99,7 @@ async def list_documents(db: AsyncSession = Depends(get_db)):
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     content_type = file.content_type or "application/octet-stream"
@@ -127,7 +134,7 @@ async def upload_document(
         s3_key=s3_key,
         s3_bucket=settings.S3_BUCKET_DOCUMENTS,
         status="uploaded",
-        uploaded_by=ANON_USER_ID,
+        uploaded_by=current_user.id,
     )
     db.add(doc)
     await db.commit()
@@ -156,13 +163,19 @@ async def upload_document(
 
 
 @router.get("/{doc_id}", response_model=DocumentResponse)
-async def get_document(doc_id: str, db: AsyncSession = Depends(get_db)):
+async def get_document(
+    doc_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     try:
         did = uuid.UUID(doc_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid document ID")
 
-    result = await db.execute(select(Document).where(Document.id == did))
+    result = await db.execute(
+        select(Document).where(Document.id == did).where(Document.uploaded_by == current_user.id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -170,13 +183,19 @@ async def get_document(doc_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{doc_id}", status_code=204)
-async def delete_document(doc_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_document(
+    doc_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     try:
         did = uuid.UUID(doc_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid document ID")
 
-    result = await db.execute(select(Document).where(Document.id == did))
+    result = await db.execute(
+        select(Document).where(Document.id == did).where(Document.uploaded_by == current_user.id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -202,6 +221,7 @@ async def delete_document(doc_id: str, db: AsyncSession = Depends(get_db)):
 async def reindex_document(
     doc_id: str,
     background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -209,7 +229,9 @@ async def reindex_document(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid document ID")
 
-    result = await db.execute(select(Document).where(Document.id == did))
+    result = await db.execute(
+        select(Document).where(Document.id == did).where(Document.uploaded_by == current_user.id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")

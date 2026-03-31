@@ -1,3 +1,10 @@
+export interface User {
+  id: string;
+  email: string;
+  display_name?: string;
+  created_at: string;
+}
+
 export interface Session {
   id: string;
   title?: string;
@@ -29,6 +36,24 @@ export interface Message {
   prompt_tokens?: number;
   completion_tokens?: number;
   latency_ms?: number;
+  feedback?: 'up' | 'down';
+  feedback_at?: string;
+  // Agent identity (set when streamed via the done event)
+  agent_id?: string;
+  agent_character?: string;
+  agent_title?: string;
+}
+
+export interface InvestorProfile {
+  age?: number | null;
+  risk_tolerance?: number | null;
+  horizon_years?: number | null;
+  goals: string[];
+  portfolio_size_usd?: number | null;
+  monthly_contribution_usd?: number | null;
+  tax_accounts: string[];
+  preferred_agent: string;
+  updated_at?: string | null;
 }
 
 export interface Document {
@@ -50,14 +75,23 @@ export interface Document {
 
 // SSE streaming event types (matches backend agents/orchestrator.py)
 export type StreamEvent =
-  | { type: 'session';     session_id: string; message_id: string }
+  | { type: 'session';     session_id: string; message_id: string; agent_id: string; agent_character: string; agent_title: string }
   | { type: 'tool_call';   tool: string; input: Record<string, unknown>; step: number }
   | { type: 'tool_result'; tool: string; result: string; step: number }
   | { type: 'delta';       text: string }
-  | { type: 'done';        latency_ms: number; steps: number; chunks: CitedChunk[] }
+  | { type: 'done';        latency_ms: number; steps: number; chunks: CitedChunk[]; agent_id: string; agent_character: string; agent_title: string }
   | { type: 'error';       message: string };
 
 export type ChatMode = 'strict_rag' | 'expert_context';
+
+export type AgentId =
+  | 'auto'
+  | 'equity_analyst'
+  | 'technical_trader'
+  | 'macro_strategist'
+  | 'retirement_planner'
+  | 'crypto_analyst'
+  | 'portfolio_strategist';
 
 export interface ChatRequest {
   message: string;
@@ -66,4 +100,5 @@ export interface ChatRequest {
   filter_document_ids?: string[];
   rewrite_query?: boolean;
   mode?: ChatMode;
+  agent_id?: AgentId;
 }

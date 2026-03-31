@@ -6,11 +6,13 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    ARRAY,
     TIMESTAMP,
     BigInteger,
     Boolean,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
 )
@@ -28,6 +30,27 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     display_name: Mapped[str | None] = mapped_column(String(255))
     email: Mapped[str | None] = mapped_column(String(255), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False, server_default="")
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+
+
+class InvestorProfile(Base):
+    """Per-user investor profile — personalises every analyst response."""
+
+    __tablename__ = "investor_profiles"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    age: Mapped[int | None] = mapped_column(Integer)
+    risk_tolerance: Mapped[int | None] = mapped_column(Integer)       # 1 (very conservative) – 5 (very aggressive)
+    horizon_years: Mapped[int | None] = mapped_column(Integer)         # investment horizon
+    goals: Mapped[list | None] = mapped_column(ARRAY(String))          # ['retirement','growth','income','preservation']
+    portfolio_size_usd: Mapped[int | None] = mapped_column(BigInteger)
+    monthly_contribution_usd: Mapped[int | None] = mapped_column(Integer)
+    tax_accounts: Mapped[list | None] = mapped_column(ARRAY(String))   # ['401k','roth_ira','traditional_ira','taxable']
+    preferred_agent: Mapped[str | None] = mapped_column(String(50))    # default agent id
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=datetime.utcnow)
 
@@ -69,6 +92,8 @@ class Message(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer)
     completion_tokens: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+    feedback: Mapped[str | None] = mapped_column(String(10))
+    feedback_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     session: Mapped["Session"] = relationship("Session", back_populates="messages")
 
@@ -103,6 +128,24 @@ class Document(Base):
         back_populates="document",
         cascade="all, delete-orphan",
     )
+
+
+class PortfolioPosition(Base):
+    """Per-user virtual portfolio — one row per ticker."""
+
+    __tablename__ = "portfolio_positions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    ticker: Mapped[str] = mapped_column(String(20), nullable=False)
+    asset_type: Mapped[str] = mapped_column(String(20), default="stock")   # stock|etf|crypto|crypto_etf
+    shares: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
+    avg_cost_usd: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    added_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=datetime.utcnow)
 
 
 class DocumentChunk(Base):

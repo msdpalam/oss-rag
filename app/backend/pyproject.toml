@@ -7,6 +7,7 @@ testpaths     = ["tests"]
 markers = [
     "unit:        unit tests — no external services required",
     "integration: integration tests — requires postgres + qdrant",
+    "eval:        evaluation tests — requires qdrant + real embedder; add RUN_EVAL=true for LLM judge",
 ]
 # Short traceback by default; override with -v --tb=long when debugging
 addopts = "--tb=short -q"

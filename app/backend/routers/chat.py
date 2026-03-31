@@ -21,19 +21,19 @@ from typing import List, Optional
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from agents.episodic_memory import episodic_memory
-from agents.orchestrator import orchestrator
+from agents.orchestrator import AgentOrchestrator
+from core.auth import get_current_user
 from core.config import settings
 from core.database import get_db
-from core.models import Message, Session
+from core.models import Document, InvestorProfile, Message, Session, User
 
 router = APIRouter()
 log = structlog.get_logger()
-
-ANON_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -44,6 +44,7 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     rewrite_query: bool = True
     mode: Optional[str] = Field(default=None, pattern="^(strict_rag|expert_context)$")
+    agent_id: Optional[str] = None  # e.g. "equity_analyst", "technical_trader", "auto"
 
 
 class ChatResponse(BaseModel):
@@ -55,19 +56,44 @@ class ChatResponse(BaseModel):
     latency_ms: int
 
 
+# ── Profile helper ────────────────────────────────────────────────────────────
+
+
+async def _get_investor_profile(user_id, db: AsyncSession) -> dict:
+    result = await db.execute(
+        select(InvestorProfile).where(InvestorProfile.user_id == user_id)
+    )
+    profile = result.scalar_one_or_none()
+    if profile is None:
+        return {}
+    return {
+        "age": profile.age,
+        "risk_tolerance": profile.risk_tolerance,
+        "horizon_years": profile.horizon_years,
+        "goals": profile.goals or [],
+        "portfolio_size_usd": profile.portfolio_size_usd,
+        "monthly_contribution_usd": profile.monthly_contribution_usd,
+        "tax_accounts": profile.tax_accounts or [],
+    }
+
+
 # ── Session helpers ───────────────────────────────────────────────────────────
 
 
-async def _get_or_create_session(session_id: Optional[str], db: AsyncSession) -> Session:
-    from sqlalchemy import select
-
+async def _get_or_create_session(
+    session_id: Optional[str], user_id: uuid.UUID, db: AsyncSession
+) -> Session:
     if session_id:
-        result = await db.execute(select(Session).where(Session.id == uuid.UUID(session_id)))
+        result = await db.execute(
+            select(Session)
+            .where(Session.id == uuid.UUID(session_id))
+            .where(Session.user_id == user_id)
+        )
         sess = result.scalar_one_or_none()
         if sess:
             return sess
 
-    sess = Session(id=uuid.uuid4(), user_id=ANON_USER_ID)
+    sess = Session(id=uuid.uuid4(), user_id=user_id)
     db.add(sess)
     await db.flush()
     return sess
@@ -123,12 +149,31 @@ async def _persist_exchange(
 
 
 @router.post("/stream")
-async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
+async def chat_stream(
+    request: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Agentic streaming chat via Server-Sent Events.
     Runs the tool-use loop then streams the final answer.
     """
-    sess = await _get_or_create_session(request.session_id, db)
+    # Fetch this user's indexed document IDs for per-user RAG isolation
+    doc_result = await db.execute(
+        select(Document.id)
+        .where(Document.uploaded_by == current_user.id)
+        .where(Document.status == "indexed")
+    )
+    user_doc_ids = [str(r) for r in doc_result.scalars()]
+    investor_profile = await _get_investor_profile(current_user.id, db)
+
+    orch = AgentOrchestrator(
+        user_document_ids=user_doc_ids,
+        agent_id=request.agent_id,
+        investor_profile=investor_profile,
+        user_id=str(current_user.id),
+    )
+    sess = await _get_or_create_session(request.session_id, current_user.id, db)
     history = await _load_history(sess, db)
     message_id = uuid.uuid4()
 
@@ -145,7 +190,7 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     async def event_generator():
         nonlocal final_chunks, final_steps, final_latency, final_tickers, final_tools
 
-        async for event in orchestrator.stream(
+        async for event in orch.stream(
             user_message=request.message,
             history=history,
             session_id=str(sess.id),
@@ -198,10 +243,29 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=ChatResponse)
-async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
+async def chat(
+    request: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Non-streaming chat — collects the full agentic run and returns JSON."""
     t0 = time.monotonic()
-    sess = await _get_or_create_session(request.session_id, db)
+
+    doc_result = await db.execute(
+        select(Document.id)
+        .where(Document.uploaded_by == current_user.id)
+        .where(Document.status == "indexed")
+    )
+    user_doc_ids = [str(r) for r in doc_result.scalars()]
+    investor_profile = await _get_investor_profile(current_user.id, db)
+
+    orch = AgentOrchestrator(
+        user_document_ids=user_doc_ids,
+        agent_id=request.agent_id,
+        investor_profile=investor_profile,
+        user_id=str(current_user.id),
+    )
+    sess = await _get_or_create_session(request.session_id, current_user.id, db)
     history = await _load_history(sess, db)
     message_id = uuid.uuid4()
     await db.commit()
@@ -212,7 +276,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     final_tickers: List[str] = []
     final_tools: List[str] = []
 
-    async for event in orchestrator.stream(
+    async for event in orch.stream(
         user_message=request.message,
         history=history,
         session_id=str(sess.id),
